@@ -1,0 +1,32 @@
+Options -MultiViews
+RewriteEngine On
+
+# Force HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Remove www (canonical)
+RewriteCond %{HTTP_HOST} ^www\.memorymint\.fun [NC]
+RewriteRule ^ https://memorymint.fun%{REQUEST_URI} [L,R=301]
+
+# Next.js static export with trailingSlash:true generates /mint/index.html etc.
+# Apache serves these automatically when DirectoryIndex is set.
+DirectoryIndex index.html
+
+# ── Coming Soon mode ──────────────────────────────────────────────────────────
+# Remove this entire block when launching the full site.
+# Bypass: visit /coming-soon/?preview=mmpreview to set the cookie for 24 h.
+RewriteCond %{HTTP_COOKIE} !mmbypass=1
+RewriteCond %{REQUEST_URI} !^/coming-soon [NC]
+RewriteCond %{REQUEST_URI} !^/_next [NC]
+RewriteCond %{REQUEST_URI} !\.(png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|otf|css|js|json|txt|xml|map)$ [NC]
+RewriteRule ^ /coming-soon/index.html [L]
+# ─────────────────────────────────────────────────────────────────────────────
+
+# If a file or directory exists, serve it directly
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Otherwise fall back to the root index (Next.js client-side router takes over)
+RewriteRule ^ /index.html [L]

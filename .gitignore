@@ -1,0 +1,20 @@
+# Dependencies
+frontend/node_modules/
+frontend/.next/
+
+# Environment files (contain secrets)
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+frontend/.claude/
+
+# WordPress uploads (user content, not code)
+plugin/memory-mint/assets/js/*.min.js

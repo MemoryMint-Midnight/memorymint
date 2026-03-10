@@ -1,0 +1,47 @@
+.memorymint-admin h1 {
+    font-size: 23px;
+    font-weight: 400;
+    margin: 0;
+    padding: 9px 0 4px;
+    line-height: 1.3;
+}
+
+.memorymint-admin h1 .count {
+    font-size: 14px;
+    color: #646970;
+}
+
+.memorymint-admin h2 {
+    font-size: 16px;
+    margin-top: 24px;
+}
+
+.memorymint-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.memorymint-status-pending {
+    background: #ffefc2;
+    color: #8a6d00;
+}
+
+.memorymint-status-minting {
+    background: #d4e9ff;
+    color: #004085;
+}
+
+.memorymint-status-minted,
+.memorymint-status-confirmed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.memorymint-status-failed {
+    background: #f8d7da;
+    color: #721c24;
+}

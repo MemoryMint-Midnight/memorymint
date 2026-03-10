@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600&display=swap');
+
+@font-face {
+  font-family: 'Grape Nuts';
+  src: url('/fonts/GrapeNuts-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-mint-cream font-fredoka;
+}
+
+/* Apply Schoolbell font to all headings */
+h1, h2, h3, h4, h5, h6 {
+  @apply font-schoolbell;
+}
+
+/* Ensure buttons and other elements use Fredoka */
+button, input, select, textarea {
+  @apply font-fredoka;
+}
