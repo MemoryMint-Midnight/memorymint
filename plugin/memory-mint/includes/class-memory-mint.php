@@ -36,6 +36,12 @@ class MemoryMint {
         // CORS support for Next.js
         add_action('rest_api_init', [$this, 'enable_cors']);
         add_action('init', [$this, 'enable_cors']);
+
+        // Policy wallet balance alert cron
+        if (!wp_next_scheduled('memorymint_wallet_balance_check')) {
+            wp_schedule_event(time(), 'twicedaily', 'memorymint_wallet_balance_check');
+        }
+        add_action('memorymint_wallet_balance_check', [$this, 'check_policy_wallet_balance']);
     }
 
     public function register_roles() {
@@ -191,6 +197,62 @@ class MemoryMint {
 
         $option_key = $unit_keys[$file_type] ?? 'service_fee_image';
         return floatval(self::get_option($option_key, '2.50'));
+    }
+
+    /**
+     * Checks policy wallet balance and emails an alert when it runs low.
+     * Runs via WP Cron (twicedaily). Deduplication via transients prevents spam.
+     */
+    public function check_policy_wallet_balance() {
+        $network = self::get_network();
+        $api_key = self::get_anvil_api_key();
+        if (empty($api_key)) {
+            return;
+        }
+
+        global $wpdb;
+        $table  = $wpdb->prefix . 'memorymint_policy_wallets';
+        $wallet = $wpdb->get_row($wpdb->prepare(
+            "SELECT payment_address FROM $table WHERE network = %s AND is_active = 1 LIMIT 1",
+            $network
+        ));
+        if (!$wallet) {
+            return;
+        }
+
+        $anvil   = new Services\AnvilService();
+        $balance = $anvil->get_address_balance($wallet->payment_address);
+        if ($balance === null) {
+            return;
+        }
+
+        $alert_email = get_option('memorymint_wallet_alert_email', get_option('admin_email'));
+        $mints_left  = max(0, floor($balance / 2.2));
+        $addr        = $wallet->payment_address;
+        $net_label   = strtoupper($network);
+
+        if ($balance < 3 && !get_transient('memorymint_balance_critical_sent')) {
+            $subject = '[Memory Mint] CRITICAL: Policy Wallet at ' . number_format($balance, 2) . ' ADA';
+            $message = "CRITICAL — Your MemoryMint policy wallet is almost empty.\n\n"
+                . "Balance:            " . number_format($balance, 2) . " ADA\n"
+                . "Mints remaining:    ~" . $mints_left . "\n"
+                . "Wallet address:     " . $addr . "\n"
+                . "Network:            " . $net_label . "\n\n"
+                . "Custodial mints will fail immediately if this runs out. Fund now.";
+            wp_mail($alert_email, $subject, $message);
+            set_transient('memorymint_balance_critical_sent', true, 6 * HOUR_IN_SECONDS);
+
+        } elseif ($balance < 10 && !get_transient('memorymint_balance_warning_sent')) {
+            $subject = '[Memory Mint] Warning: Policy Wallet at ' . number_format($balance, 2) . ' ADA';
+            $message = "Warning — Your MemoryMint policy wallet balance is getting low.\n\n"
+                . "Balance:            " . number_format($balance, 2) . " ADA\n"
+                . "Mints remaining:    ~" . $mints_left . "\n"
+                . "Wallet address:     " . $addr . "\n"
+                . "Network:            " . $net_label . "\n\n"
+                . "Top up soon to avoid custodial mint failures.";
+            wp_mail($alert_email, $subject, $message);
+            set_transient('memorymint_balance_warning_sent', true, 24 * HOUR_IN_SECONDS);
+        }
     }
 
     /**

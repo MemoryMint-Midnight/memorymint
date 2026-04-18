@@ -239,6 +239,12 @@ class AdminPage {
             'sanitize_callback' => 'sanitize_text_field',
         ]);
 
+        // Wallet alert email
+        register_setting('memorymint_settings', 'memorymint_wallet_alert_email', [
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_email',
+        ]);
+
         // Cleanup option
         register_setting('memorymint_settings', 'memorymint_delete_data_on_deactivate', [
             'type' => 'boolean',

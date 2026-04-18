@@ -86,6 +86,18 @@ $midnight_test  = isset($_GET['midnight_test'])  ? sanitize_text_field($_GET['mi
                 </td>
             </tr>
             <tr>
+                <th><label for="memorymint_wallet_alert_email">Wallet Alert Email</label></th>
+                <td>
+                    <input type="email" name="memorymint_wallet_alert_email" id="memorymint_wallet_alert_email"
+                        value="<?php echo esc_attr(get_option('memorymint_wallet_alert_email', 'mrjinx.crypto@gmail.com')); ?>"
+                        class="regular-text" />
+                    <p class="description">
+                        Email to notify when the policy wallet drops below <strong>10 ADA</strong> (warning) or <strong>3 ADA</strong> (critical).
+                        Checked every 12 hours. You will not be spammed — one alert per threshold per day.
+                    </p>
+                </td>
+            </tr>
+            <tr>
                 <th>Service Fees (USD)</th>
                 <td>
                     <table style="border-collapse:collapse;">

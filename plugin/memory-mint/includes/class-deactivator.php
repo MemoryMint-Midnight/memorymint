@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) {
 class Deactivator {
 
     public function deactivate() {
+        wp_clear_scheduled_hook('memorymint_wallet_balance_check');
         flush_rewrite_rules();
 
         // Only drop tables if cleanup option is enabled
@@ -46,6 +47,7 @@ class Deactivator {
             'memorymint_max_video_size',
             'memorymint_max_audio_size',
             'memorymint_delete_data_on_deactivate',
+            'memorymint_wallet_alert_email',
         ];
 
         foreach ($options as $option) {
