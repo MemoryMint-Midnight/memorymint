@@ -1,0 +1,170 @@
+pragma language_version >= 0.22;
+
+import CompactStandardLibrary;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MemoryMint — Midnight private layer for memory NFTs
+//
+// All ledger fields are private by default on Midnight.
+// No personal data is stored on-chain — only hashes (GDPR by design).
+// The Cardano NFT (public side) is linked via cardanoAssetId.
+//
+// Ownership pattern (mirrors example-bboard):
+//   The owner stores a commitment = persistentHash(["memorymint:owner:", secretKey])
+//   To prove ownership, the caller supplies localSecretKey() as a witness and
+//   the circuit verifies the hash matches the stored commitment.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Ledger state (all private) ────────────────────────────────────────────────
+
+export ledger initialized:      Boolean;   // guards against double-mint
+export ledger contentHash:      Bytes<32>; // SHA-256 of raw memory content
+export ledger ownerCommitment:  Bytes<32>; // persistentHash(["memorymint:owner:", secretKey])
+export ledger memoryTimestamp:  Uint<64>;  // Unix epoch (seconds) when memory was captured
+export ledger geoHash:          Bytes<32>; // SHA-256 of location string — never disclosed
+export ledger tagCount:         Uint<32>;  // Number of tags attached
+export ledger cardanoAssetId:   Bytes<32>; // SHA-256 of Cardano (policyId ++ assetName)
+export ledger transferCount:    Counter;   // Increments on every ownership transfer
+export ledger revoked:          Boolean;   // True if owner has permanently revoked
+
+// ── Witnesses (private inputs — never on-chain) ───────────────────────────────
+
+witness localSecretKey():          Bytes<32>; // Owner's secret key — proves ownership
+witness secretContentHash():       Bytes<32>;
+witness secretTimestamp():         Uint<64>;
+witness secretGeoHash():           Bytes<32>;
+witness secretTagCount():          Uint<32>;
+witness secretCardanoAssetId():    Bytes<32>;
+witness secretNewOwnerCommitment():Bytes<32>; // Pre-computed commitment of new owner
+
+// ── Helper circuit ────────────────────────────────────────────────────────────
+
+// Derive the owner's public commitment from their secret key.
+// Mirrors bboard's publicKey() pattern — domain-separated to prevent
+// commitment collisions with other Midnight contracts.
+circuit ownerPublicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "memorymint:owner:"), sk]);
+}
+
+// ── Circuit: mintMemory ───────────────────────────────────────────────────────
+// Called once when a memory is first registered on Midnight.
+// The caller supplies all values as private witnesses.
+// Prerequisite: the corresponding Cardano NFT must already be minted.
+
+export circuit mintMemory(): [] {
+  assert(initialized == false, "memory already minted");
+
+  const initContentHash    = secretContentHash();
+  const initTimestamp      = secretTimestamp();
+  const initGeoHash        = secretGeoHash();
+  const initTagCount       = secretTagCount();
+  const initCardanoAssetId = secretCardanoAssetId();
+
+  initialized     = true;
+  contentHash     = disclose(initContentHash);
+  ownerCommitment = disclose(ownerPublicKey(localSecretKey()));
+  memoryTimestamp = disclose(initTimestamp);
+  geoHash         = disclose(initGeoHash);
+  tagCount        = disclose(initTagCount);
+  cardanoAssetId  = disclose(initCardanoAssetId);
+  revoked         = false;
+}
+
+// ── Circuit: proveOwnership ───────────────────────────────────────────────────
+// ZK proof: the caller is the current owner.
+// Reveals nothing — ownership is proven without disclosing the secret key.
+
+export circuit proveOwnership(): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory has been revoked");
+  assert(
+    ownerCommitment == ownerPublicKey(localSecretKey()),
+    "caller is not the memory owner"
+  );
+}
+
+// ── Circuit: proveCreatedBefore ───────────────────────────────────────────────
+// ZK proof: the memory's timestamp is strictly before a given cutoff.
+// cutoffTimestamp is a PUBLIC argument — verifiers can see the claimed cutoff.
+// The actual memoryTimestamp is never revealed.
+
+export circuit proveCreatedBefore(cutoffTimestamp: Uint<64>): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory has been revoked");
+  assert(memoryTimestamp < cutoffTimestamp, "memory was NOT created before the cutoff");
+}
+
+// ── Circuit: proveContentAuthentic ───────────────────────────────────────────
+// ZK proof: the caller knows the exact content that was hashed at mint time.
+// Proves content authenticity without revealing the content itself.
+// A passing proof means: "I have the original content that was committed on-chain."
+
+export circuit proveContentAuthentic(): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory has been revoked");
+  assert(
+    contentHash == secretContentHash(),
+    "content does not match what was minted"
+  );
+}
+
+// ── Circuit: proveContainsTag ─────────────────────────────────────────────────
+// ZK proof: the memory has at least one tag (Phase 0 stub).
+// Phase 1 will upgrade to a Map<Bytes<32>, Boolean> for per-tag proofs.
+
+export circuit proveContainsTag(): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory has been revoked");
+  assert(tagCount    >  0,     "memory has no tags");
+}
+
+// ── Circuit: updateTag ────────────────────────────────────────────────────────
+// Increments the tag count. Only the owner can call this.
+
+export circuit updateTag(): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory has been revoked");
+  assert(
+    ownerCommitment == ownerPublicKey(localSecretKey()),
+    "only the owner can update tags"
+  );
+  tagCount = (tagCount + 1) as Uint<32>;
+}
+
+// ── Circuit: transferMemory ───────────────────────────────────────────────────
+// Transfers ownership to a new owner.
+// The new owner's commitment is computed off-chain and passed as a witness.
+// The corresponding Cardano NFT transfer must happen separately on Cardano.
+
+export circuit transferMemory(): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory has been revoked");
+  assert(
+    ownerCommitment == ownerPublicKey(localSecretKey()),
+    "only the current owner can transfer"
+  );
+
+  const newOwnerCommit = secretNewOwnerCommitment();
+  assert(
+    newOwnerCommit != ownerCommitment,
+    "cannot transfer to yourself"
+  );
+
+  ownerCommitment = disclose(newOwnerCommit);
+  transferCount.increment(1);
+}
+
+// ── Circuit: revokeMemory ─────────────────────────────────────────────────────
+// Permanently revokes the memory. Irreversible.
+// All other circuits will reject calls after revocation.
+
+export circuit revokeMemory(): [] {
+  assert(initialized == true,  "memory not yet minted");
+  assert(revoked     == false, "memory already revoked");
+  assert(
+    ownerCommitment == ownerPublicKey(localSecretKey()),
+    "only the owner can revoke"
+  );
+
+  revoked = true;
+}

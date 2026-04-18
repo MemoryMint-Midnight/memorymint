@@ -1,0 +1,50 @@
+{
+  "name": "@memorymint/midnight",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compile": "compactc contracts/memory_token.compact --output contracts/managed",
+    "service:dev": "tsx watch service/src/index.ts",
+    "service:build": "tsc --project service/tsconfig.json",
+    "service:start": "node service/dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/midnight-js": "4.0.4",
+    "@midnight-ntwrk/compact-runtime": "0.15.0",
+    "@midnight-ntwrk/ledger-v8": "8.0.3",
+    "@midnight-ntwrk/wallet-sdk-facade": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-dust-wallet": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-hd": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-shielded": "2.1.0",
+    "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.1.0",
+    "@midnight-ntwrk/wallet-sdk-address-format": "3.0.0",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.0.4",
+    "bip39": "^3.1.0",
+    "ws": "^8.18.0",
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "typescript": "^5.4.5",
+    "@types/node": "^22.0.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "tsx": "^4.11.0"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "overrides": {
+    "@midnight-ntwrk/ledger-v8": "8.0.3",
+    "@midnight-ntwrk/ledger-v7": "7.0.0",
+    "@midnight-ntwrk/wallet-sdk-shielded": "2.1.0",
+    "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.1.0"
+  }
+}

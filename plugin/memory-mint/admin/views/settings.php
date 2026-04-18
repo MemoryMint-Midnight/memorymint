@@ -3,10 +3,11 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-$network     = get_option('memorymint_network', 'preprod');
-$anvil_test  = isset($_GET['anvil_test'])  ? sanitize_text_field($_GET['anvil_test'])  : '';
-$email_test  = isset($_GET['email_test'])  ? sanitize_text_field($_GET['email_test'])  : '';
-$email_to    = isset($_GET['to'])          ? sanitize_email($_GET['to'])               : '';
+$network        = get_option('memorymint_network', 'preprod');
+$anvil_test     = isset($_GET['anvil_test'])     ? sanitize_text_field($_GET['anvil_test'])     : '';
+$email_test     = isset($_GET['email_test'])     ? sanitize_text_field($_GET['email_test'])     : '';
+$email_to       = isset($_GET['to'])             ? sanitize_email($_GET['to'])                  : '';
+$midnight_test  = isset($_GET['midnight_test'])  ? sanitize_text_field($_GET['midnight_test'])  : '';
 ?>
 
 <div class="wrap memorymint-admin">
@@ -27,6 +28,24 @@ $email_to    = isset($_GET['to'])          ? sanitize_email($_GET['to'])        
     <?php elseif ($anvil_test === 'error'): ?>
         <div class="notice notice-error is-dismissible">
             <p><strong>Connection error:</strong> <?php echo esc_html($_GET['msg'] ?? 'Unknown error'); ?></p>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($midnight_test === 'success'): ?>
+        <div class="notice notice-success is-dismissible">
+            <p><strong>Midnight sidecar reachable!</strong> Health check passed.</p>
+        </div>
+    <?php elseif ($midnight_test === 'failed'): ?>
+        <div class="notice notice-error is-dismissible">
+            <p><strong>Midnight sidecar unreachable.</strong> HTTP code: <?php echo esc_html($_GET['code'] ?? 'unknown'); ?></p>
+        </div>
+    <?php elseif ($midnight_test === 'no_config'): ?>
+        <div class="notice notice-warning is-dismissible">
+            <p><strong>Sidecar URL or API secret is not configured.</strong> Fill in both fields below and save first.</p>
+        </div>
+    <?php elseif ($midnight_test === 'error'): ?>
+        <div class="notice notice-error is-dismissible">
+            <p><strong>Midnight connection error:</strong> <?php echo esc_html($_GET['msg'] ?? 'Unknown error'); ?></p>
         </div>
     <?php endif; ?>
 
@@ -143,6 +162,39 @@ $email_to    = isset($_GET['to'])          ? sanitize_email($_GET['to'])        
                         <input type="hidden" name="action" value="memorymint_test_anvil" />
                         <button type="submit" class="button">Test Anvil API (<?php echo esc_html($network); ?>)</button>
                     </form>
+                </td>
+            </tr>
+        </table>
+
+        <h2>Midnight Sidecar</h2>
+        <table class="form-table">
+            <tr>
+                <th><label for="memorymint_midnight_sidecar_url">Sidecar URL</label></th>
+                <td>
+                    <input type="url" name="memorymint_midnight_sidecar_url" id="memorymint_midnight_sidecar_url"
+                        value="<?php echo esc_attr(get_option('memorymint_midnight_sidecar_url', '')); ?>"
+                        class="large-text" placeholder="http://localhost:4000" />
+                    <p class="description">Base URL of the Midnight sidecar Express service (e.g. <code>http://localhost:4000</code> or your tunnel URL).</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="memorymint_midnight_api_secret">API Secret</label></th>
+                <td>
+                    <input type="password" name="memorymint_midnight_api_secret" id="memorymint_midnight_api_secret"
+                        value="<?php echo esc_attr(get_option('memorymint_midnight_api_secret', '')); ?>"
+                        class="large-text" />
+                    <p class="description">Matches the <code>API_SECRET</code> in the sidecar <code>.env</code>. Sent as <code>x-api-secret</code> header.</p>
+                </td>
+            </tr>
+            <tr>
+                <th>Test Connection</th>
+                <td>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline;">
+                        <?php wp_nonce_field('memorymint_test_midnight'); ?>
+                        <input type="hidden" name="action" value="memorymint_test_midnight" />
+                        <button type="submit" class="button">Test Midnight Sidecar</button>
+                    </form>
+                    <p class="description">Calls <code>/health</code> on the sidecar. Save your settings first, then test.</p>
                 </td>
             </tr>
         </table>

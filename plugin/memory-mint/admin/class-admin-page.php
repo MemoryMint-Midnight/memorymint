@@ -13,8 +13,9 @@ class AdminPage {
         add_action('admin_notices', [$this, 'show_admin_notices']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_styles']);
         add_action('admin_post_memorymint_generate_wallet', [$this, 'handle_generate_wallet']);
-        add_action('admin_post_memorymint_test_anvil', [$this, 'handle_test_anvil']);
-        add_action('admin_post_memorymint_test_email', [$this, 'handle_test_email']);
+        add_action('admin_post_memorymint_test_anvil',    [$this, 'handle_test_anvil']);
+        add_action('admin_post_memorymint_test_email',    [$this, 'handle_test_email']);
+        add_action('admin_post_memorymint_test_midnight', [$this, 'handle_test_midnight']);
     }
 
     public function show_admin_notices() {
@@ -228,6 +229,16 @@ class AdminPage {
             'sanitize_callback' => 'absint',
         ]);
 
+        // Midnight sidecar
+        register_setting('memorymint_settings', 'memorymint_midnight_sidecar_url', [
+            'type'              => 'string',
+            'sanitize_callback' => 'esc_url_raw',
+        ]);
+        register_setting('memorymint_settings', 'memorymint_midnight_api_secret', [
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+        ]);
+
         // Cleanup option
         register_setting('memorymint_settings', 'memorymint_delete_data_on_deactivate', [
             'type' => 'boolean',
@@ -364,6 +375,40 @@ class AdminPage {
             wp_redirect(admin_url('admin.php?page=memory-mint-settings&anvil_test=success'));
         } else {
             wp_redirect(admin_url('admin.php?page=memory-mint-settings&anvil_test=failed&code=' . $code));
+        }
+        exit;
+    }
+
+    public function handle_test_midnight() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('memorymint_test_midnight');
+
+        $sidecar_url = get_option('memorymint_midnight_sidecar_url', '');
+        $api_secret  = get_option('memorymint_midnight_api_secret', '');
+
+        if (empty($sidecar_url) || empty($api_secret)) {
+            wp_redirect(admin_url('admin.php?page=memory-mint-settings&midnight_test=no_config'));
+            exit;
+        }
+
+        $response = wp_remote_get(rtrim($sidecar_url, '/') . '/health', [
+            'headers' => ['x-api-secret' => $api_secret],
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_redirect(admin_url('admin.php?page=memory-mint-settings&midnight_test=error&msg=' . urlencode($response->get_error_message())));
+            exit;
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code === 200) {
+            wp_redirect(admin_url('admin.php?page=memory-mint-settings&midnight_test=success'));
+        } else {
+            wp_redirect(admin_url('admin.php?page=memory-mint-settings&midnight_test=failed&code=' . $code));
         }
         exit;
     }

@@ -27,14 +27,21 @@ class Activator {
             title varchar(100) NOT NULL,
             description text DEFAULT NULL,
             privacy enum('public','shared','private') NOT NULL DEFAULT 'public',
+            keepsake_type enum('standard','private') NOT NULL DEFAULT 'standard',
             file_attachment_id bigint(20) unsigned DEFAULT NULL,
             file_type varchar(10) DEFAULT NULL,
             file_url text DEFAULT NULL,
+            thumbnail_url text DEFAULT NULL,
             file_size bigint(20) unsigned DEFAULT 0,
+            content_hash varchar(64) DEFAULT NULL,
+            geo_hash varchar(64) DEFAULT NULL,
+            tag_count tinyint unsigned NOT NULL DEFAULT 0,
             tx_hash varchar(128) DEFAULT NULL,
             asset_id varchar(128) DEFAULT NULL,
             policy_id varchar(64) DEFAULT NULL,
             mint_status enum('pending','minting','minted','failed') NOT NULL DEFAULT 'pending',
+            midnight_address varchar(128) DEFAULT NULL,
+            midnight_status enum('pending','minting','minted','failed','skipped') NOT NULL DEFAULT 'pending',
             service_fee_paid decimal(10,2) DEFAULT 0.00,
             network_fee_ada decimal(20,6) DEFAULT 0.000000,
             wallet_address varchar(128) DEFAULT NULL,
@@ -45,6 +52,7 @@ class Activator {
             KEY user_id (user_id),
             KEY privacy (privacy),
             KEY mint_status (mint_status),
+            KEY midnight_status (midnight_status),
             KEY tx_hash (tx_hash)
         ) $charset_collate;";
 
@@ -161,6 +169,8 @@ class Activator {
         add_option('memorymint_anvil_api_key_preprod', '');
         add_option('memorymint_anvil_api_key_mainnet', '');
         add_option('memorymint_production_url', '');
+        add_option('memorymint_midnight_sidecar_url', '');
+        add_option('memorymint_midnight_api_secret', '');
         add_option('memorymint_max_image_size', '10485760');  // 10MB
         add_option('memorymint_max_video_size', '52428800');  // 50MB
         add_option('memorymint_max_audio_size', '10485760');  // 10MB

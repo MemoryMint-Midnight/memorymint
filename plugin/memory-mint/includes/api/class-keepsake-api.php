@@ -18,10 +18,13 @@ class KeepsakeApi {
                 'callback' => [$this, 'create_keepsake'],
                 'permission_callback' => [$this, 'check_auth'],
                 'args' => [
-                    'title' => ['required' => true, 'type' => 'string'],
-                    'description' => ['required' => false, 'type' => 'string'],
-                    'privacy' => ['required' => true, 'type' => 'string'],
-                    'file_attachment_id' => ['required' => true, 'type' => 'integer'],
+                    'title'             => ['required' => true,  'type' => 'string'],
+                    'description'       => ['required' => false, 'type' => 'string'],
+                    'privacy'           => ['required' => true,  'type' => 'string'],
+                    'file_attachment_id' => ['required' => true,  'type' => 'integer'],
+                    'keepsake_type'     => ['required' => false, 'type' => 'string', 'default' => 'standard'],
+                    'geo_hash'          => ['required' => false, 'type' => 'string', 'default' => ''],
+                    'tag_count'         => ['required' => false, 'type' => 'integer', 'default' => 0],
                 ],
             ],
             [
@@ -62,10 +65,13 @@ class KeepsakeApi {
     public function create_keepsake(\WP_REST_Request $request) {
         $user = wp_get_current_user();
 
-        $title = Validation::sanitize_title($request->get_param('title'));
-        $description = Validation::sanitize_description($request->get_param('description') ?? '');
-        $privacy = sanitize_text_field($request->get_param('privacy'));
+        $title              = Validation::sanitize_title($request->get_param('title'));
+        $description        = Validation::sanitize_description($request->get_param('description') ?? '');
+        $privacy            = sanitize_text_field($request->get_param('privacy'));
         $file_attachment_id = intval($request->get_param('file_attachment_id'));
+        $keepsake_type      = sanitize_text_field($request->get_param('keepsake_type') ?? 'standard');
+        $geo_input          = sanitize_text_field($request->get_param('geo_hash') ?? '');
+        $tag_count          = max(0, intval($request->get_param('tag_count') ?? 0));
 
         if (empty($title)) {
             return new \WP_REST_Response(['success' => false, 'error' => 'Title is required.'], 400);
@@ -75,31 +81,46 @@ class KeepsakeApi {
             return new \WP_REST_Response(['success' => false, 'error' => 'Invalid privacy level. Use: public, shared, or private.'], 400);
         }
 
+        if (!in_array($keepsake_type, ['standard', 'private'], true)) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'keepsake_type must be standard or private.'], 400);
+        }
+
         // Verify file ownership
         $owner = get_post_meta($file_attachment_id, '_memorymint_user_id', true);
         if (intval($owner) !== $user->ID) {
             return new \WP_REST_Response(['success' => false, 'error' => 'You do not own this file.'], 403);
         }
 
-        $file_url = wp_get_attachment_url($file_attachment_id);
+        $file_url  = wp_get_attachment_url($file_attachment_id);
         $file_type = get_post_meta($file_attachment_id, '_memorymint_file_type', true) ?: 'image';
         $file_path = get_attached_file($file_attachment_id);
         $file_size = $file_path ? filesize($file_path) : 0;
+
+        // SHA-256 of the raw file bytes — used by the Midnight contract for content authenticity proofs.
+        $content_hash = ($file_path && file_exists($file_path)) ? hash_file('sha256', $file_path) : null;
+
+        // Store SHA-256 of the geo string (64 hex chars) so the sidecar can use it directly.
+        $geo_hash = !empty($geo_input) ? hash('sha256', $geo_input) : null;
 
         global $wpdb;
         $table = $wpdb->prefix . 'memorymint_keepsakes';
 
         $inserted = $wpdb->insert($table, [
-            'user_id' => $user->ID,
-            'title' => $title,
-            'description' => $description,
-            'privacy' => $privacy,
+            'user_id'            => $user->ID,
+            'title'              => $title,
+            'description'        => $description,
+            'privacy'            => $privacy,
+            'keepsake_type'      => $keepsake_type,
             'file_attachment_id' => $file_attachment_id,
-            'file_type' => $file_type,
-            'file_url' => $file_url,
-            'file_size' => $file_size,
-            'mint_status' => 'pending',
-            'wallet_address' => get_user_meta($user->ID, 'memorymint_wallet_address', true) ?: '',
+            'file_type'          => $file_type,
+            'file_url'           => $file_url,
+            'file_size'          => $file_size,
+            'content_hash'       => $content_hash,
+            'geo_hash'           => $geo_hash,
+            'tag_count'          => $tag_count,
+            'mint_status'        => 'pending',
+            'midnight_status'    => 'pending',
+            'wallet_address'     => get_user_meta($user->ID, 'memorymint_wallet_address', true) ?: '',
         ]);
 
         if (!$inserted) {
@@ -318,23 +339,29 @@ class KeepsakeApi {
      */
     private function format_keepsake($keepsake) {
         return [
-            'id' => intval($keepsake->id),
-            'user_id' => intval($keepsake->user_id),
-            'title' => $keepsake->title,
-            'description' => $keepsake->description,
-            'privacy' => $keepsake->privacy,
-            'file_type' => $keepsake->file_type,
-            'file_url' => $keepsake->file_url,
-            'file_size' => intval($keepsake->file_size),
-            'tx_hash' => $keepsake->tx_hash,
-            'asset_id' => $keepsake->asset_id,
-            'policy_id' => $keepsake->policy_id,
-            'mint_status' => $keepsake->mint_status,
+            'id'               => intval($keepsake->id),
+            'user_id'          => intval($keepsake->user_id),
+            'title'            => $keepsake->title,
+            'description'      => $keepsake->description,
+            'privacy'          => $keepsake->privacy,
+            'keepsake_type'    => $keepsake->keepsake_type ?? 'standard',
+            'file_type'        => $keepsake->file_type,
+            'file_url'         => $keepsake->file_url,
+            'thumbnail_url'    => $keepsake->thumbnail_url ?? null,
+            'file_size'        => intval($keepsake->file_size),
+            'content_hash'     => $keepsake->content_hash ?? null,
+            'tag_count'        => intval($keepsake->tag_count ?? 0),
+            'tx_hash'          => $keepsake->tx_hash,
+            'asset_id'         => $keepsake->asset_id,
+            'policy_id'        => $keepsake->policy_id,
+            'mint_status'      => $keepsake->mint_status,
+            'midnight_address' => $keepsake->midnight_address ?? null,
+            'midnight_status'  => $keepsake->midnight_status ?? 'pending',
             'service_fee_paid' => floatval($keepsake->service_fee_paid),
-            'network_fee_ada' => floatval($keepsake->network_fee_ada),
-            'wallet_address' => $keepsake->wallet_address,
-            'created_at' => $keepsake->created_at,
-            'updated_at' => $keepsake->updated_at,
+            'network_fee_ada'  => floatval($keepsake->network_fee_ada),
+            'wallet_address'   => $keepsake->wallet_address,
+            'created_at'       => $keepsake->created_at,
+            'updated_at'       => $keepsake->updated_at,
         ];
     }
 

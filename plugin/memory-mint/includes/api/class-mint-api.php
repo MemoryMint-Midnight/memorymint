@@ -4,6 +4,7 @@ namespace MemoryMint\Api;
 use MemoryMint\MemoryMint;
 use MemoryMint\Helpers\Encryption;
 use MemoryMint\Services\AnvilService;
+use MemoryMint\Services\MidnightService;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -66,6 +67,12 @@ class MintApi {
         register_rest_route(self::NAMESPACE, '/mint/wallet-balance', [
             'methods' => 'GET',
             'callback' => [$this, 'get_wallet_balance'],
+            'permission_callback' => [$this, 'check_auth'],
+        ]);
+
+        register_rest_route(self::NAMESPACE, '/mint/midnight/(?P<keepsake_id>\d+)', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'mint_on_midnight'],
             'permission_callback' => [$this, 'check_auth'],
         ]);
     }
@@ -686,6 +693,122 @@ class MintApi {
             'success'    => true,
             'message'    => 'Keepsake reset to pending. You can now retry minting.',
             'keepsake_id' => $keepsake_id,
+        ], 200);
+    }
+
+    /**
+     * Register a keepsake on Midnight after its Cardano mint has confirmed.
+     * Also handles Private Keepsakes (Midnight-only, no Cardano record required).
+     *
+     * POST /memorymint/v1/mint/midnight/{keepsake_id}
+     *
+     * For custodial (email) users whose mnemonic is still server-side, the sidecar
+     * call happens immediately. Self-custody users whose mnemonic has been deleted
+     * receive a 202 with requires_midnight_wallet = true — they complete this step
+     * via the Midnight DApp Connector in the Next.js frontend.
+     */
+    public function mint_on_midnight(\WP_REST_Request $request) {
+        $user        = wp_get_current_user();
+        $keepsake_id = intval($request->get_param('keepsake_id'));
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'memorymint_keepsakes';
+
+        $keepsake = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE id = %d AND user_id = %d",
+            $keepsake_id, $user->ID
+        ));
+
+        if (!$keepsake) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Keepsake not found.'], 404);
+        }
+
+        if ($keepsake->midnight_status === 'minted') {
+            return new \WP_REST_Response([
+                'success'          => true,
+                'already_minted'   => true,
+                'midnight_address' => $keepsake->midnight_address,
+            ], 200);
+        }
+
+        // Standard keepsakes must have a confirmed Cardano mint first.
+        $keepsake_type = $keepsake->keepsake_type ?? 'standard';
+        if ($keepsake_type === 'standard' && $keepsake->mint_status !== 'minted') {
+            return new \WP_REST_Response([
+                'success' => false,
+                'error'   => 'Cardano mint must complete before registering on Midnight.',
+            ], 400);
+        }
+
+        if (empty($keepsake->content_hash)) {
+            return new \WP_REST_Response([
+                'success' => false,
+                'error'   => 'No content hash found for this keepsake. Re-upload the file and try again.',
+            ], 400);
+        }
+
+        // Custodial users have their mnemonic stored server-side.
+        $encrypted_mnemonic = get_user_meta($user->ID, 'memorymint_custodial_mnemonic_encrypted', true);
+
+        if (empty($encrypted_mnemonic)) {
+            // Self-custody user — mnemonic was deleted after seed backup.
+            // They must use the Midnight DApp Connector in the frontend to complete this step.
+            return new \WP_REST_Response([
+                'success'                => false,
+                'requires_midnight_wallet' => true,
+                'error'                  => 'Your seed phrase is no longer held by the server. '
+                                         . 'Connect your Midnight wallet (Lace or 1AM) to complete registration.',
+            ], 202);
+        }
+
+        $mnemonic = Encryption::decrypt($encrypted_mnemonic);
+        if (!$mnemonic) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Failed to decrypt wallet credentials.'], 500);
+        }
+
+        $midnight = new MidnightService();
+        if (!$midnight->is_configured()) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Midnight sidecar not configured. Contact admin.'], 503);
+        }
+
+        // Build the cardanoAssetId hash for Standard keepsakes.
+        $cardano_asset_id = MidnightService::ZERO_BYTES32;
+        if ($keepsake_type === 'standard' && !empty($keepsake->policy_id)) {
+            $asset_name       = $this->generate_asset_name($keepsake);
+            $cardano_asset_id = MidnightService::hash_cardano_asset($keepsake->policy_id, $asset_name);
+        }
+
+        $wpdb->update($table, ['midnight_status' => 'minting'], ['id' => $keepsake_id]);
+
+        // Give PHP enough time for the sidecar (cold-start can take several minutes).
+        @set_time_limit(360);
+
+        $result = $midnight->mint_memory(
+            $mnemonic,
+            $keepsake->content_hash,
+            strtotime($keepsake->created_at),
+            $keepsake->geo_hash ?? MidnightService::ZERO_BYTES32,
+            intval($keepsake->tag_count ?? 0),
+            $cardano_asset_id
+        );
+
+        if (function_exists('sodium_memzero')) {
+            sodium_memzero($mnemonic);
+        }
+
+        if (!$result['success']) {
+            $wpdb->update($table, ['midnight_status' => 'failed'], ['id' => $keepsake_id]);
+            return new \WP_REST_Response(['success' => false, 'error' => $result['error']], 500);
+        }
+
+        $wpdb->update($table, [
+            'midnight_status'  => 'minted',
+            'midnight_address' => $result['contract_address'],
+        ], ['id' => $keepsake_id]);
+
+        return new \WP_REST_Response([
+            'success'          => true,
+            'midnight_address' => $result['contract_address'],
         ], 200);
     }
 
