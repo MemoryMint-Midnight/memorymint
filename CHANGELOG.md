@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.12] - 2026-04-19
+
+### Fixed
+- Coming soon gate was not active on production — `COMING_SOON=true` env var was missing from Vercel; added to project settings and triggered fresh build to enforce gating
+
+### Changed
+- `next.config.js` — disabled `X-Powered-By` response header (`poweredByHeader: false`)
+
+---
+
 ## [1.1.11] - 2026-04-19
 
 ### Added
