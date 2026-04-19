@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const BYPASS_KEY = process.env.COMING_SOON_BYPASS || 'mmpreview'
+const BYPASS_KEY = process.env.NEXT_PUBLIC_COMING_SOON_BYPASS || 'mmpreview'
 
 export function middleware(request: NextRequest) {
-  const isComingSoon = process.env.COMING_SOON === 'true'
+  const isComingSoon = true
 
   if (!isComingSoon) return NextResponse.next()
 

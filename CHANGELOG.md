@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.13] - 2026-04-19
+
+### Fixed
+- Coming soon gate was still bypassed — `process.env.COMING_SOON` in Next.js Edge Middleware is statically evaluated at build time, so runtime Vercel env vars have no effect; hardcoded `isComingSoon = true` in middleware until launch
+
+---
+
 ## [1.1.12] - 2026-04-19
 
 ### Fixed
