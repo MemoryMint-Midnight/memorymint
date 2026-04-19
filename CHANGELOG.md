@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.18] - 2026-04-19
+
+### Changed
+- `README.md` — version badge 1.1.17; Project Status table updated: encryption ✅, midnight pages ✅, prove/transfer/revoke proxy endpoints ✅
+- `FLOWS.md` — added encryption step to Flow 2 (wallet-connect mint path); added Flow 3 (Decrypt a Private Memory); renumbered old flows 3→5, 4→6, 5→7; updated sequence summary table
+
+---
+
 ## [1.1.17] - 2026-04-19
 
 ### Added

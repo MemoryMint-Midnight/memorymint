@@ -56,9 +56,10 @@ USER                    FRONTEND              WORDPRESS API           MIDNIGHT S
  │                          │                      │                        │
  │  4. Upload photo + details                      │                        │
  ├─────────────────────────►│                      │                        │
+ │                          │  [public keepsake — no encryption]            │
  │                          │  POST /upload        │                        │
  │                          ├─────────────────────►│                        │
- │                          │                      │  store file → IPFS     │
+ │                          │                      │  store file → WordPress│
  │                          │                      │  compute SHA-256 →     │
  │                          │                      │  contentHash           │
  │                          │                      │  compute SHA-256 →     │
@@ -114,7 +115,25 @@ USER                    FRONTEND              WORDPRESS API           MIDNIGHT S
  │  2. Session token issued │◄─────────────────────┤                        │
  │     (no wallet generated)│                      │                        │
  │                          │                      │                        │
- │  3. Upload + details — same as custodial path   │                        │
+ │  3. Upload photo + details                      │                        │
+ ├─────────────────────────►│                      │                        │
+ │                          │  [if private keepsake — encrypt before upload]│
+ │                          │  sha256(file) → contentHash                   │
+ │                          │  CIP-30 signData(addr,                        │
+ │                          │    "memorymint:decrypt:v1:" + contentHash)    │
+ │                          │  HKDF(signature) → CEK (256-bit AES-GCM key) │
+ │                          │  AES-GCM encrypt file → encrypted blob        │
+ │                          │  [server never sees plaintext or CEK]         │
+ │                          │                      │                        │
+ │                          │  POST /upload (encrypted blob)                │
+ │                          ├─────────────────────►│                        │
+ │                          │                      │  store file → WordPress│
+ │                          │  POST /keepsakes     │                        │
+ │                          │  { is_encrypted: true, content_hash }         │
+ │                          ├─────────────────────►│                        │
+ │                          │                      │  store original hash   │
+ │                          │                      │  (pre-encryption)      │
+ │                          │◄─────────────────────┤                        │
  │                          │                      │                        │
  │  4. Request mint         │                      │                        │
  ├─────────────────────────►│                      │                        │
@@ -141,7 +160,51 @@ USER                    FRONTEND              WORDPRESS API           MIDNIGHT S
 
 ---
 
-## Flow 3: Generating a ZK Proof
+## Flow 3: Decrypting a Private Memory (Gallery)
+
+The owner opens a private encrypted keepsake in their gallery. Decryption happens entirely in the browser — the server never holds or derives the CEK.
+
+```
+OWNER                   FRONTEND              WORDPRESS API
+ │                          │                      │
+ │  1. Open gallery         │                      │
+ ├─────────────────────────►│                      │
+ │                          │  GET /keepsakes      │
+ │                          ├─────────────────────►│
+ │                          │◄─────────────────────┤
+ │                          │  { is_encrypted: true, content_hash, file_url }
+ │                          │                      │
+ │  2. Click private memory │                      │
+ ├─────────────────────────►│                      │
+ │                          │  detect is_encrypted = true
+ │                          │  → show "Decrypting…" overlay
+ │                          │                      │
+ │  3. Browser wallet signs │                      │
+ │     (CIP-30 signData)    │                      │
+ │     payload:             │                      │
+ │     "memorymint:decrypt:v1:" + contentHash       │
+ │◄────────────────────────►│                      │
+ │                          │  HKDF(signature) → CEK
+ │                          │                      │
+ │                          │  fetch encrypted file from file_url
+ │                          │  AES-GCM decrypt in browser
+ │                          │  → blob URL (never leaves browser)
+ │                          │                      │
+ │  4. Full-resolution      │                      │
+ │     decrypted image/video│                      │
+ │     displayed            │                      │
+ │                          │                      │
+ │  [No wallet connected]   │                      │
+ │                          │  show "Connect a Cardano wallet to decrypt"
+ │                          │                      │
+ │  [Custodial / email user]│                      │
+ │                          │  show "Import your seed phrase into a
+ │                          │   Cardano wallet (Lace, Eternl) to decrypt"
+```
+
+---
+
+## Flow 5: Generating a ZK Proof
 
 The owner proves something about their memory to a third party. No private data is ever disclosed.
 
@@ -203,7 +266,7 @@ VERIFIER receives proof                            │                        �
 
 ---
 
-## Flow 4: Transferring Ownership
+## Flow 6: Transferring Ownership
 
 Both chains must be updated when ownership transfers. They are coordinated by the platform but are independent on-chain transactions.
 
@@ -252,7 +315,7 @@ CURRENT OWNER           FRONTEND              WORDPRESS API           MIDNIGHT S
 
 ---
 
-## Flow 5: Sharing a Memory
+## Flow 7: Sharing a Memory
 
 The share system grants third-party access to a memory without transferring ownership.
 
@@ -334,7 +397,9 @@ ZK proofs let the owner selectively prove specific facts to verifiers without ev
 
 | Flow | Cardano first? | Midnight first? | Notes |
 |---|---|---|---|
-| Mint | ✅ Cardano first | Midnight second | Cardano asset ID must exist before Midnight registration |
+| Mint (custodial) | ✅ Cardano first | Midnight second | Cardano asset ID must exist before Midnight registration |
+| Mint (wallet, private) | Browser encrypt first | Cardano second, Midnight third | AES-GCM encryption happens before any upload |
+| Decrypt (gallery) | — | — | Browser-only; wallet signs → CEK derived → decrypt in-memory |
 | Prove | — | ✅ Midnight only | Cardano is not involved in proof generation |
 | Transfer | ✅ Cardano first | Midnight second | NFT transferred, then Midnight ownership updated |
 | Share | — | — | Neither chain directly involved — platform DB only |

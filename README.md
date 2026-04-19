@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Cardano-mainnet-blue?logo=cardano" alt="Cardano" />
   <img src="https://img.shields.io/badge/Midnight-preprod-purple" alt="Midnight" />
-  <img src="https://img.shields.io/badge/version-1.1.0-green" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.1.17-green" alt="Version" />
   <img src="https://img.shields.io/badge/status-private%20beta-orange" alt="Status" />
 </p>
 
@@ -651,19 +651,22 @@ Users pay in fiat (Stripe or similar). Zero crypto friction — no wallet requir
 | WordPress plugin — gallery + sharing | ✅ Complete |
 | WordPress plugin — Midnight sidecar integration | ✅ Complete |
 | WordPress plugin — seed backup confirmation flag | 🔲 Planned |
+| WordPress plugin — `prove`/`transfer`/`revoke` proxy endpoints | ✅ Complete (v1.1.11) |
 | Next.js frontend — mint, gallery, account, share | ✅ Complete |
 | Next.js frontend — `SeedPhraseModal` (seed display) | ✅ Complete |
 | Next.js frontend — seed backup confirmation step | 🔲 Planned |
 | Next.js frontend — wallet-only login gate | 🔲 Planned |
 | Next.js frontend — CIP-30 + Midnight DApp Connector | 🔲 Planned |
-| Next.js frontend — browser-side content encryption | 🔲 Planned |
-| Next.js frontend — browser-side content decryption | 🔲 Planned |
+| Next.js frontend — browser-side content encryption (AES-GCM, CEK from signData) | ✅ Complete (v1.1.17) |
+| Next.js frontend — browser-side content decryption (gallery detail modal) | ✅ Complete (v1.1.17) |
 | Next.js frontend — blurred thumbnail generation | 🔲 Planned |
+| Next.js frontend — `app/midnight/prove` page | ✅ Complete |
+| Next.js frontend — `app/midnight/transfer` page | ✅ Complete |
+| Next.js frontend — `app/midnight/revoke` page | ✅ Complete |
 | Compact contract — 8 circuits, smoke tested on preprod | ✅ Complete (2026-04-18) |
 | Midnight sidecar — all routes | ✅ Complete |
 | Content re-encryption on transfer | 🔲 Planned |
 | Private Keepsake (Midnight-only mint path) | 🔲 Planned |
-| `app/midnight/` pages (prove, transfer, revoke UI) | 🔲 Planned |
 | Mainnet deployment | Pending ecosystem PR approval |
 
 ---
