@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.5] - 2026-04-19
+
+### Fixed
+- Replaced `app/guide/[slug]/page.tsx` (dynamic server route) with `app/guide/post/page.tsx` (static client page using `?slug=` query param); Next.js 15 static export refuses to build dynamic routes when `generateStaticParams` returns `[]`, which happens when the WordPress API is unreachable during CI
+
+---
+
 ## [1.1.4] - 2026-04-19
 
 ### Fixed

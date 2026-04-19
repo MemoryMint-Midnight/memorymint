@@ -164,7 +164,7 @@ export default async function GuidePage() {
                   dangerouslySetInnerHTML={{ __html: post.excerpt.rendered }}
                 />
                 <Link
-                  href={`/guide/${post.slug}`}
+                  href={`/guide/post?slug=${post.slug}`}
                   className="text-amber-600 hover:text-amber-700 font-medium inline-flex items-center gap-2"
                 >
                   Read more →
