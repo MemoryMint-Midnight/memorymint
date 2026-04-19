@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.4] - 2026-04-19
+
+### Fixed
+- `lib/wordpress.ts` — replaced `next: { revalidate }` with `cache: 'force-cache'` on all fetch calls; `revalidate` is not supported in `output: 'export'` static builds and caused the `/guide/[slug]` route to fail with a misleading "missing generateStaticParams" error
+
+---
+
 ## [1.1.3] - 2026-04-19
 
 ### Fixed

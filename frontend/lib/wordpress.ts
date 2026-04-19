@@ -61,7 +61,7 @@ export async function getPosts(params?: {
     if (params?.orderBy) queryParams.append('orderby', params.orderBy)
 
     const response = await fetch(`${WP_API_URL}/posts?${queryParams.toString()}`, {
-      next: { revalidate: 60 }, // Revalidate every 60 seconds
+      cache: 'force-cache',
     })
 
     if (!response.ok) {
@@ -82,7 +82,7 @@ export async function getPosts(params?: {
 export async function getPostBySlug(slug: string): Promise<WPPost | null> {
   try {
     const response = await fetch(`${WP_API_URL}/posts?slug=${slug}&_embed=true`, {
-      next: { revalidate: 60 },
+      cache: 'force-cache',
     })
 
     if (!response.ok) {
@@ -103,7 +103,7 @@ export async function getPostBySlug(slug: string): Promise<WPPost | null> {
 export async function getPages(): Promise<WPPage[]> {
   try {
     const response = await fetch(`${WP_API_URL}/pages?_embed=true`, {
-      next: { revalidate: 3600 }, // Revalidate every hour
+      cache: 'force-cache',
     })
 
     if (!response.ok) {
@@ -124,7 +124,7 @@ export async function getPages(): Promise<WPPage[]> {
 export async function getPageBySlug(slug: string): Promise<WPPage | null> {
   try {
     const response = await fetch(`${WP_API_URL}/pages?slug=${slug}&_embed=true`, {
-      next: { revalidate: 3600 },
+      cache: 'force-cache',
     })
 
     if (!response.ok) {
@@ -145,7 +145,7 @@ export async function getPageBySlug(slug: string): Promise<WPPage | null> {
 export async function searchContent(query: string): Promise<WPPost[]> {
   try {
     const response = await fetch(`${WP_API_URL}/posts?search=${encodeURIComponent(query)}&_embed=true`, {
-      next: { revalidate: 60 },
+      cache: 'force-cache',
     })
 
     if (!response.ok) {
