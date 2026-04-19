@@ -628,6 +628,64 @@ The link is intentionally one-way: Midnight knows about Cardano, but Cardano has
 
 ---
 
+## External APIs & Services
+
+### Anvil API — Cardano Transaction Building
+**Docs:** https://docs.ada-anvil.app  
+**Dashboard:** https://ada-anvil.app
+
+Anvil handles all Cardano transaction construction and submission. MemoryMint never builds raw CBOR manually — it delegates to Anvil, then signs locally with the policy wallet (and optionally the user's wallet), and submits the witness set back.
+
+| Method | Endpoint | Used for |
+|---|---|---|
+| `POST` | `/services/txs/build` | Build an unsigned CIP-25 mint transaction |
+| `POST` | `/services/txs/submit` | Submit a signed transaction + witness set |
+| `GET` | `/addresses/{address}` | Get wallet ADA balance |
+| `GET` | `/services/txs/{txHash}` | Verify a transaction exists on-chain |
+| `GET` | `/services/health` | API connectivity check (WP Admin diagnostic) |
+
+**Base URLs:**
+- Mainnet: `https://api.ada-anvil.app/v1`
+- Preprod: `https://preprod.api.ada-anvil.app/v1`
+
+**Auth:** Bearer token — set in WP Admin → MemoryMint Settings → Anvil API Key (separate keys for preprod and mainnet).
+
+---
+
+### CoinGecko — ADA/USD Price
+**Docs:** https://docs.coingecko.com/reference/simple-price
+
+Used to convert the ADA service fee into a USD display price. Cached for 5 minutes; falls back to last known price if CoinGecko is unreachable (stale price discarded after 24 hours).
+
+| Method | Endpoint |
+|---|---|
+| `GET` | `https://api.coingecko.com/api/v3/simple/price?ids=cardano&vs_currencies=usd` |
+
+No API key required (free public tier).
+
+---
+
+### Pinata — IPFS Media Storage
+**Docs:** https://docs.pinata.cloud  
+**Dashboard:** https://app.pinata.cloud
+
+All uploaded keepsake files (photos, videos, notes) are pinned to IPFS via Pinata. The resulting IPFS CID is stored in WordPress and embedded in the CIP-25 Cardano metadata.
+
+**Auth:** Bearer JWT — set in WP Admin → MemoryMint Settings → Pinata JWT.
+
+---
+
+### Midnight Network
+**Docs:** https://docs.midnight.network  
+**Explorer (preprod):** https://midnight-explorer.preprod.midnight.network
+
+Midnight is the privacy layer. MemoryMint deploys a Compact smart contract (`memory_token.compact`) per keepsake via the sidecar service, enabling ZK proofs of ownership, content authenticity, timestamps, and tags without revealing private data.
+
+- **Proof server (local Docker):** `midnightntwrk/proof-server:8.0.3` on port 6300
+- **Wallet SDK:** `@midnight-ntwrk/wallet-sdk-dust-wallet` v3.0.0 (platform DUST wallet pays all fees)
+
+---
+
 ## Business Model
 
 Users pay in fiat (Stripe or similar). Zero crypto friction — no wallet required to mint.
