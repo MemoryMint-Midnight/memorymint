@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.10] - 2026-04-19
+
+### Changed
+- `next.config.js` — removed `output: 'export'`, `trailingSlash`, and `images.unoptimized`; Vercel runs Next.js natively so static export is not needed and was causing a missing routes-manifest error
+
+---
+
 ## [1.1.9] - 2026-04-19
 
 ### Changed
