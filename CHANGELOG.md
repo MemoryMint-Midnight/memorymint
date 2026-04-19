@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.16] - 2026-04-19
+
+### Changed
+- Admin bypass now supports two independent keys: `mmadmin-jinx` (owner) and `mmhelper-pb` (VPS helper)
+
+---
+
 ## [1.1.15] - 2026-04-19
 
 ### Changed

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const BYPASS_KEY = process.env.NEXT_PUBLIC_COMING_SOON_BYPASS || 'mmpreview'
+const BYPASS_KEYS = ['mmadmin-jinx', 'mmhelper-pb']
 
 export function middleware(request: NextRequest) {
   const isComingSoon = true
@@ -20,18 +20,18 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check bypass cookie — allows full site access for 24h after using the preview key
+  // Check bypass cookie — valid if it matches any known key
   const bypassCookie = request.cookies.get('mm_preview')
-  if (bypassCookie?.value === BYPASS_KEY) {
+  if (bypassCookie && BYPASS_KEYS.includes(bypassCookie.value)) {
     return NextResponse.next()
   }
 
-  // Check ?preview=<key> in URL — sets cookie then redirects to clean URL
+  // Check ?preview=<key> — sets cookie then redirects to clean URL
   const previewParam = searchParams.get('preview')
-  if (previewParam === BYPASS_KEY) {
+  if (previewParam && BYPASS_KEYS.includes(previewParam)) {
     const cleanUrl = new URL(pathname, request.url)
     const response = NextResponse.redirect(cleanUrl)
-    response.cookies.set('mm_preview', BYPASS_KEY, {
+    response.cookies.set('mm_preview', previewParam, {
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 365, // 1 year
