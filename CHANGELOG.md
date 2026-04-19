@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.6] - 2026-04-19
+
+### Fixed
+- GitHub Actions deploy workflow: use `protocol: ftps` on port 21 — Namecheap rejects plain FTP connections
+
+---
+
 ## [1.1.5] - 2026-04-19
 
 ### Fixed
