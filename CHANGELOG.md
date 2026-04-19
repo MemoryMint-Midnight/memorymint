@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.9] - 2026-04-19
+
+### Changed
+- Deployment: switched from Namecheap SSH/FTP to Vercel — Namecheap blocks external SSH connections from GitHub Actions IPs
+- GitHub Actions workflow simplified to build-check only; Vercel handles deployment directly from GitHub on every push to main
+
+---
+
 ## [1.1.8] - 2026-04-19
 
 ### Changed
