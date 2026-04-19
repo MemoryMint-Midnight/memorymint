@@ -656,7 +656,7 @@ Users pay in fiat (Stripe or similar). Zero crypto friction — no wallet requir
 | Next.js frontend — mint, gallery, account, share | ✅ Complete |
 | Next.js frontend — `SeedPhraseModal` (seed display + verify + confirm) | ✅ Complete (v1.1.19) |
 | Next.js frontend — seed backup confirmation step | ✅ Complete (v1.1.19) |
-| Next.js frontend — wallet-only login gate | 🔲 Next (#11) |
+| Next.js frontend — wallet-only login gate | ✅ Complete (v1.1.21) |
 | Next.js frontend — CIP-30 + Midnight DApp Connector | 🔲 Planned |
 | Next.js frontend — browser-side content encryption (AES-GCM, CEK from signData) | ✅ Complete (v1.1.17) |
 | Next.js frontend — browser-side content decryption (gallery detail modal) | ✅ Complete (v1.1.17) |
