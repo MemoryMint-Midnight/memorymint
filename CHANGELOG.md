@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.2] - 2026-04-19
+
+### Added
+- GitHub Actions workflow (`.github/workflows/deploy.yml`) — auto-builds Next.js frontend and FTP-deploys to Namecheap `public_html/` on every push to `main`
+
+---
+
 ## [1.1.1] - 2026-04-19
 
 ### Added
