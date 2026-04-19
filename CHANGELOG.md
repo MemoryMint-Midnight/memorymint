@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.7] - 2026-04-19
+
+### Changed
+- Deploy workflow: replaced FTP with SSH/rsync via `burnett01/rsync-deployments` — Namecheap blocks FTP connections from GitHub Actions IPs; SSH is more reliable and secure
+
+---
+
 ## [1.1.6] - 2026-04-19
 
 ### Fixed

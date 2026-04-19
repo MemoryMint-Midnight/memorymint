@@ -30,14 +30,13 @@ jobs:
         env:
           NEXT_PUBLIC_WORDPRESS_API_URL: ${{ secrets.NEXT_PUBLIC_WORDPRESS_API_URL }}
 
-      - name: Deploy to Namecheap via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      - name: Deploy to Namecheap via SSH
+        uses: burnett01/rsync-deployments@7.0.1
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftps
-          port: 21
-          local-dir: ./frontend/out/
-          server-dir: /public_html/
-          dangerous-clean-slate: false
+          switches: -avzr --delete
+          path: frontend/out/
+          remote_path: /home/memohecy/public_html/
+          remote_host: ${{ secrets.FTP_SERVER }}
+          remote_port: 22
+          remote_user: ${{ secrets.FTP_USERNAME }}
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
