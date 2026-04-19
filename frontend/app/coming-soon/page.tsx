@@ -123,8 +123,10 @@ const MINT_CREAM  = '#ede4d8'
 
 export default function ComingSoonPage() {
   const screen = useScreen()
+  const [showLogin, setShowLogin] = useState(false)
+  const [password, setPassword]   = useState('')
+  const [error, setError]         = useState(false)
 
-  // Bypass: visit /coming-soon/?preview=mmpreview → sets a 24h cookie so Apache serves the full site
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('preview') === 'mmpreview') {
@@ -132,6 +134,15 @@ export default function ComingSoonPage() {
       window.location.replace('/')
     }
   }, [])
+
+  function handleLogin(e: React.FormEvent) {
+    e.preventDefault()
+    if (password.trim()) {
+      window.location.href = `/?preview=${encodeURIComponent(password.trim())}`
+    } else {
+      setError(true)
+    }
+  }
 
   const photoSize  = screen === 'mobile' ? 80  : screen === 'tablet' ? 105 : 128
   const maxPhotos  = screen === 'mobile' ? 3   : 4
@@ -222,6 +233,57 @@ export default function ComingSoonPage() {
             </svg>
             Go follow us on X
           </a>
+        </div>
+
+        {/* ── Admin login ── */}
+        <div style={{ textAlign: 'center', paddingTop: 32, paddingBottom: 8 }}>
+          {!showLogin ? (
+            <button
+              type="button"
+              onClick={() => setShowLogin(true)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontFamily: FREDOKA, fontSize: 13, color: '#a16207', opacity: 0.5,
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Admin
+            </button>
+          ) : (
+            <form onSubmit={handleLogin} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <input
+                type="password"
+                placeholder="Access key"
+                value={password}
+                onChange={e => { setPassword(e.target.value); setError(false) }}
+                autoFocus
+                style={{
+                  fontFamily: FREDOKA, fontSize: 15,
+                  padding: '8px 14px', borderRadius: 8,
+                  border: error ? '2px solid #dc2626' : '2px solid #d97706',
+                  outline: 'none', backgroundColor: 'white',
+                  width: 180, textAlign: 'center',
+                }}
+              />
+              {error && (
+                <span style={{ fontFamily: FREDOKA, fontSize: 13, color: '#dc2626' }}>Incorrect key</span>
+              )}
+              <button
+                type="submit"
+                style={{
+                  fontFamily: FREDOKA, fontSize: 15, fontWeight: 600,
+                  backgroundColor: '#d97706', color: 'white',
+                  border: 'none', borderRadius: 8, padding: '8px 24px',
+                  cursor: 'pointer', width: 180,
+                }}
+              >
+                Enter
+              </button>
+            </form>
+          )}
         </div>
 
         {/* Spacer */}

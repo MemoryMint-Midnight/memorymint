@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.14] - 2026-04-19
+
+### Added
+- Coming-soon page: discreet Admin button at bottom → password form → validates access key and redirects to full site
+
+---
+
 ## [1.1.13] - 2026-04-19
 
 ### Fixed
