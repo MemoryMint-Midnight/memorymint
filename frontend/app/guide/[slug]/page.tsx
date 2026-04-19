@@ -8,8 +8,12 @@ interface Props {
 }
 
 export async function generateStaticParams() {
-  const posts = await getPosts({ perPage: 100 })
-  return posts.map((post) => ({ slug: post.slug }))
+  try {
+    const posts = await getPosts({ perPage: 100 })
+    return posts.map((post) => ({ slug: post.slug }))
+  } catch {
+    return []
+  }
 }
 
 export default async function GuidePostPage({ params }: Props) {

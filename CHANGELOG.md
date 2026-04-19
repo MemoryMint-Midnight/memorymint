@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.3] - 2026-04-19
+
+### Fixed
+- `guide/[slug]` — wrap `generateStaticParams()` in try/catch so CI build succeeds when WordPress API is unreachable during GitHub Actions build
+
+---
+
 ## [1.1.2] - 2026-04-19
 
 ### Added
