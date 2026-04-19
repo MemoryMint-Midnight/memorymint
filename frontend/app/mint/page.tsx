@@ -757,6 +757,7 @@ export default function MintPage() {
 
     const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
     const authHeaders = { Authorization: `Bearer ${token}` }
+    const mmWalletKey = sessionStorage.getItem('mmWalletKey')
     const results: { txHash: string; explorerUrl: string; title: string; status: 'confirmed' | 'pending' }[] = []
     const mintedKeepsakeIds: number[] = []
     let currentKeepsakeId: number | null = null
@@ -850,7 +851,6 @@ export default function MintPage() {
         // Step 4: Sign and submit — branch on wallet type
         setMintStep(`Minting memory ${i + 1} of ${uploadedFiles.length} to blockchain...`)
 
-        const mmWalletKey = sessionStorage.getItem('mmWalletKey')
         let signData: any
 
         if (mmWalletKey) {
