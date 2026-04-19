@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2026-04-19
+
+### Added
+- `/midnight/prove` page — select ZK proof type (ownership, content authentic, created before, contains tag), generate proof, copy shareable link
+- `/midnight/transfer` page — transfer Midnight private record to another MemoryMint account by email
+- `/midnight/revoke` page — permanently revoke Midnight private record (type REVOKE to confirm)
+- All three Midnight sub-pages show "coming soon" gracefully when sidecar is not yet deployed
+
+### Changed
+- Gallery keepsake detail modal: replaced non-functional "Manage" button with Prove / Transfer / Revoke action buttons linking to the new sub-pages; shows live `midnight_status` badge
+- `Memory` interface now includes `midnightAddress` and `midnightStatus`; keepsake API mapping passes both fields through
+- `SeedPhraseModal` — 4-step flow with 2-word spot-check verification before backup is confirmed; X button and close blocked during reveal/verify steps
+- Footer: "Optional privacy protection" → "Rational privacy protection"
+- `README.md` — Cardano badge updated to mainnet; added required "This project is built on the Midnight Network." sentence
+- Plugin version bump 1.1.0 → 1.1.1
+
+### Fixed
+- Policy wallet balance diagnostic tool added to WP admin — shows raw Anvil API response, HTTP status, and lovelace value to diagnose balance unavailability without SSH access
+
+---
+
 ## [1.1.0] - 2026-04-18
 
 ### Added
