@@ -631,8 +631,8 @@ The link is intentionally one-way: Midnight knows about Cardano, but Cardano has
 ## External APIs & Services
 
 ### Anvil API — Cardano Transaction Building
-**Docs:** https://docs.ada-anvil.app  
-**Dashboard:** https://ada-anvil.app
+**Website:** https://ada-anvil.io/services/api  
+**Dashboard:** https://ada-anvil.io
 
 Anvil handles all Cardano transaction construction and submission. MemoryMint never builds raw CBOR manually — it delegates to Anvil, then signs locally with the policy wallet (and optionally the user's wallet), and submits the witness set back.
 
