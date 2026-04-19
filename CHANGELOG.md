@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.19] - 2026-04-19
+
+### Added
+- `confirm_backup` now sets `auth_method = 'wallet'` — backed-up accounts switch to wallet-only login (groundwork for #11)
+- `SeedPhraseModal` done step: informs user their next login requires a Cardano wallet (Lace, Eternl, Vespr)
+- Account page: `SeedPhraseModal` wired directly; "Back Up Now" button opens modal in-page instead of linking to gallery
+
+---
+
 ## [1.1.18] - 2026-04-19
 
 ### Changed
