@@ -816,6 +816,7 @@ class AuthApi {
         }
 
         update_user_meta($user_id, 'memorymint_wallet_backed_up', current_time('mysql'));
+        update_user_meta($user_id, 'memorymint_auth_method', 'wallet');
         delete_user_meta($user_id, 'memorymint_custodial_mnemonic_encrypted');
         delete_user_meta($user_id, 'memorymint_custodial_skey_encrypted');
 

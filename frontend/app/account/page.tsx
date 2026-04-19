@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import SeedPhraseModal from '@/components/SeedPhraseModal'
 
 interface UserProfile {
   id: number
@@ -60,6 +61,7 @@ export default function AccountPage() {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [showSeedModal, setShowSeedModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
@@ -236,13 +238,16 @@ export default function AccountPage() {
         >
           <p className="font-semibold text-amber-900 mb-1">⚠ Back up your seed phrase</p>
           <p className="text-amber-700 text-sm mb-3">
-            Your wallet&apos;s seed phrase is stored temporarily. Back it up now — once dismissed it cannot be shown again.
+            Your wallet&apos;s seed phrase is stored temporarily on our servers. Back it up now —
+            after backup you&apos;ll log in with your Cardano wallet instead of email.
           </p>
-          <Link href="/gallery">
-            <button className="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors">
-              Go to Gallery to Back Up
-            </button>
-          </Link>
+          <button
+            type="button"
+            onClick={() => setShowSeedModal(true)}
+            className="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors"
+          >
+            Back Up Now
+          </button>
         </motion.div>
       )}
 
@@ -461,6 +466,15 @@ export default function AccountPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <SeedPhraseModal
+        isOpen={showSeedModal}
+        onClose={() => setShowSeedModal(false)}
+        onComplete={() => {
+          setShowSeedModal(false)
+          setUser((prev) => prev ? { ...prev, needs_seed_backup: false } : prev)
+        }}
+      />
     </div>
   )
 }

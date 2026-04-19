@@ -352,10 +352,15 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                   <h2 className="text-3xl font-bold text-gray-800 mb-3 font-schoolbell">
                     Backup Complete
                   </h2>
-                  <p className="text-gray-600 mb-6 leading-relaxed">
+                  <p className="text-gray-600 mb-3 leading-relaxed">
                     Your seed phrase has been removed from our servers. You are now in full
                     control of your wallet — keep that seed phrase safe!
                   </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 text-sm text-amber-800 text-left">
+                    <p className="font-semibold mb-1">Next time you log in:</p>
+                    <p>Import your seed phrase into a Cardano wallet (Lace, Eternl, Vespr) and
+                    use <strong>Connect Wallet</strong> on the login page.</p>
+                  </div>
                   <button
                     type="button"
                     onClick={handleClose}
