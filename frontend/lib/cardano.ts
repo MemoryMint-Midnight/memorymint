@@ -154,6 +154,22 @@ export const connectWallet = async (walletName: string = 'nami'): Promise<any> =
 }
 
 /**
+ * Sign an arbitrary message via CIP-30 signData and return the raw signature hex.
+ * Used as IKM for HKDF key derivation (content encryption/decryption).
+ */
+export async function signDataForKey(
+  walletApi: any,
+  addressHex: string,
+  message: string,
+): Promise<string> {
+  const payloadHex = Array.from(new TextEncoder().encode(message))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+  const result = await walletApi.signData(addressHex, payloadHex)
+  return result.signature as string
+}
+
+/**
  * Get wallet balance
  */
 export const getWalletBalance = async (walletApi: any): Promise<string> => {

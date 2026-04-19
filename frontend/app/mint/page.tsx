@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import LoginModal from '@/components/LoginModal'
-import { connectWallet, getWalletBalance } from '@/lib/cardano'
+import { connectWallet, getWalletBalance, signDataForKey } from '@/lib/cardano'
+import { sha256File, deriveKeyFromSignature, encryptFile } from '@/lib/crypto'
 
 interface UploadedFile {
   id: string
@@ -770,10 +771,30 @@ export default function MintPage() {
         const uf = uploadedFiles[i]
         const fileTitle = uploadedFiles.length > 1 ? `${title} (${i + 1}/${uploadedFiles.length})` : title
 
+        // Step 0: Encrypt file client-side for private keepsakes (wallet users only)
+        let fileToUpload: File | Blob = uf.file
+        let originalContentHash: string | null = null
+        let isEncrypted = false
+
+        if (privacy === 'private' && mmWalletKey) {
+          setMintStep(`Encrypting file ${i + 1} of ${uploadedFiles.length}...`)
+          try {
+            const walletApi = await connectWallet(mmWalletKey)
+            const addressHex: string = await walletApi.getChangeAddress()
+            originalContentHash = await sha256File(uf.file)
+            const sigHex = await signDataForKey(walletApi, addressHex, `memorymint:decrypt:v1:${originalContentHash}`)
+            const cek = await deriveKeyFromSignature(sigHex)
+            fileToUpload = await encryptFile(uf.file, cek)
+            isEncrypted = true
+          } catch {
+            throw new Error('Encryption failed. Make sure your wallet is connected and approve the signing request.')
+          }
+        }
+
         // Step 1: Upload file to WordPress
         setMintStep(`Uploading file ${i + 1} of ${uploadedFiles.length}...`)
         const formData = new FormData()
-        formData.append('file', uf.file)
+        formData.append('file', fileToUpload instanceof File ? fileToUpload : new File([fileToUpload], uf.file.name, { type: 'application/octet-stream' }))
 
         const uploadRes = await fetch(`${apiBase}/memorymint/v1/upload`, {
           method: 'POST',
@@ -798,6 +819,7 @@ export default function MintPage() {
             description,
             privacy,
             file_attachment_id: attachmentId,
+            ...(isEncrypted && { is_encrypted: true, content_hash: originalContentHash }),
           }),
         })
         const keepsakeData = await keepsakeRes.json()

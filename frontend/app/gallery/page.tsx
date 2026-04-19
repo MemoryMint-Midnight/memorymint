@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence, PanInfo } from 'framer-motion'
 import Link from 'next/link'
 import SeedPhraseModal from '@/components/SeedPhraseModal'
-import { connectWallet, EXPLORER_BASE } from '@/lib/cardano'
+import { connectWallet, EXPLORER_BASE, signDataForKey } from '@/lib/cardano'
+import { deriveKeyFromSignature, decryptFileBuffer } from '@/lib/crypto'
 
 interface Memory {
   id: string
@@ -18,6 +19,8 @@ interface Memory {
   mintStatus?: string
   midnightAddress?: string | null
   midnightStatus?: string
+  isEncrypted?: boolean
+  contentHash?: string
 }
 
 interface Album {
@@ -118,6 +121,8 @@ export default function GalleryPage() {
   const [memories, setMemories] = useState<Memory[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [detailMemory, setDetailMemory] = useState<Memory | null>(null)
+  const [decryptedSrc, setDecryptedSrc] = useState<string | null>(null)
+  const [decryptState, setDecryptState] = useState<'idle' | 'decrypting' | 'decrypted' | 'error' | 'no-wallet'>('idle')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterPrivacy, setFilterPrivacy] = useState<'all' | 'public' | 'shared' | 'private'>('all')
   const [slideDirection, setSlideDirection] = useState<1 | -1>(1)
@@ -133,6 +138,28 @@ export default function GalleryPage() {
 
   const albumApiBase = () =>
     (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+
+  const attemptDecrypt = async (memory: Memory) => {
+    if (!memory.isEncrypted || !memory.contentHash) return
+    const walletKey = sessionStorage.getItem('mmWalletKey')
+    if (!walletKey) { setDecryptState('no-wallet'); return }
+    setDecryptState('decrypting')
+    try {
+      const walletApi = await connectWallet(walletKey)
+      const addressHex: string = await walletApi.getChangeAddress()
+      const sigHex = await signDataForKey(walletApi, addressHex, `memorymint:decrypt:v1:${memory.contentHash}`)
+      const cek = await deriveKeyFromSignature(sigHex)
+      const res = await fetch(memory.image)
+      const buf = await res.arrayBuffer()
+      const mimeType = memory.mediaType === 'video' ? 'video/mp4' : 'image/jpeg'
+      const blob = await decryptFileBuffer(buf, cek, mimeType)
+      const url = URL.createObjectURL(blob)
+      setDecryptedSrc(url)
+      setDecryptState('decrypted')
+    } catch {
+      setDecryptState('error')
+    }
+  }
 
   const loadAlbums = async (token: string) => {
     try {
@@ -235,6 +262,14 @@ export default function GalleryPage() {
 
   // Load real keepsakes for email (mmToken) users
   useEffect(() => {
+    if (decryptedSrc) URL.revokeObjectURL(decryptedSrc)
+    setDecryptedSrc(null)
+    setDecryptState('idle')
+    if (detailMemory?.isEncrypted) attemptDecrypt(detailMemory)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailMemory])
+
+  useEffect(() => {
     const token = sessionStorage.getItem('mmToken')
     if (!token) return
 
@@ -278,6 +313,8 @@ export default function GalleryPage() {
             mintStatus: k.mint_status,
             midnightAddress: k.midnight_address ?? null,
             midnightStatus: k.midnight_status,
+            isEncrypted: !!k.is_encrypted,
+            contentHash: k.content_hash || undefined,
           }))
           setMemories(realMemories)
         } else {
@@ -1027,20 +1064,49 @@ export default function GalleryPage() {
               {/* Photo / Video */}
               <div className="relative pt-4 px-4">
                 <div className="bg-gray-900 overflow-hidden relative" style={{ aspectRatio: '400/256' }}>
-                  {detailMemory.mediaType === 'video' ? (
-                    <video
-                      src={detailMemory.image}
-                      className={`w-full h-full object-cover ${detailMemory.privacy === 'private' ? 'blur-lg' : ''}`}
-                      autoPlay loop muted playsInline controls
-                    />
-                  ) : (
-                    <img
-                      src={detailMemory.image}
-                      alt={detailMemory.title}
-                      className={`w-full h-full object-cover ${detailMemory.privacy === 'private' ? 'blur-lg' : ''}`}
-                    />
+                  {(() => {
+                    const src = decryptState === 'decrypted' && decryptedSrc ? decryptedSrc : detailMemory.image
+                    const blurred = detailMemory.privacy === 'private' && decryptState !== 'decrypted'
+                    return detailMemory.mediaType === 'video' ? (
+                      <video src={src} className={`w-full h-full object-cover ${blurred ? 'blur-lg' : ''}`} autoPlay loop muted playsInline controls />
+                    ) : (
+                      <img src={src} alt={detailMemory.title} className={`w-full h-full object-cover ${blurred ? 'blur-lg' : ''}`} />
+                    )
+                  })()}
+
+                  {detailMemory.privacy === 'private' && detailMemory.isEncrypted && decryptState !== 'decrypted' && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                      <div className="bg-white/95 px-6 py-5 rounded-2xl text-center max-w-xs">
+                        {decryptState === 'decrypting' && (
+                          <>
+                            <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                            <p className="text-sm font-medium text-gray-700">Decrypting with your wallet…</p>
+                          </>
+                        )}
+                        {decryptState === 'idle' && (
+                          <>
+                            <p className="text-lg font-bold text-gray-800 mb-1">🔐 Private Memory</p>
+                            <p className="text-sm text-gray-600 mb-3">Encrypted — connect your wallet to view</p>
+                            <button type="button" onClick={() => attemptDecrypt(detailMemory)} className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">Decrypt</button>
+                          </>
+                        )}
+                        {decryptState === 'no-wallet' && (
+                          <>
+                            <p className="text-lg font-bold text-gray-800 mb-1">🔐 Private Memory</p>
+                            <p className="text-sm text-gray-600">Connect a Cardano wallet (Lace, Eternl, etc.) to decrypt this memory.</p>
+                          </>
+                        )}
+                        {decryptState === 'error' && (
+                          <>
+                            <p className="text-lg font-bold text-gray-800 mb-2">Decryption failed</p>
+                            <button type="button" onClick={() => attemptDecrypt(detailMemory)} className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">Try again</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  {detailMemory.privacy === 'private' && (
+
+                  {detailMemory.privacy === 'private' && !detailMemory.isEncrypted && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                       <div className="bg-white/95 px-6 py-4 rounded-2xl text-center">
                         <p className="text-lg font-bold text-gray-800 mb-1">🔐 Private Memory</p>

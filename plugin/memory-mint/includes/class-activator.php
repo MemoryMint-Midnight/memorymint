@@ -34,6 +34,7 @@ class Activator {
             thumbnail_url text DEFAULT NULL,
             file_size bigint(20) unsigned DEFAULT 0,
             content_hash varchar(64) DEFAULT NULL,
+            is_encrypted tinyint(1) unsigned NOT NULL DEFAULT 0,
             geo_hash varchar(64) DEFAULT NULL,
             tag_count tinyint unsigned NOT NULL DEFAULT 0,
             tx_hash varchar(128) DEFAULT NULL,

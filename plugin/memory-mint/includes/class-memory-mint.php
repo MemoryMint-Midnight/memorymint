@@ -296,6 +296,14 @@ class MemoryMint {
                 enum('pending','minting','minted','failed','skipped','revoked') NOT NULL DEFAULT 'pending'");
         }
 
+        // v5: add is_encrypted column for client-side AES-GCM encryption
+        $has_encrypted_col = $wpdb->get_results(
+            $wpdb->prepare("SHOW COLUMNS FROM $keepsakes_table LIKE %s", 'is_encrypted')
+        );
+        if (empty($has_encrypted_col)) {
+            $wpdb->query("ALTER TABLE $keepsakes_table ADD COLUMN is_encrypted tinyint(1) unsigned NOT NULL DEFAULT 0 AFTER content_hash");
+        }
+
         // v3: create album tables for existing installs
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         $charset_collate = $wpdb->get_charset_collate();

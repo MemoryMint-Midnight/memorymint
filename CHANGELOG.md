@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.17] - 2026-04-19
+
+### Added
+- Browser-side AES-GCM-256 encryption for private keepsakes (wallet users only)
+- `lib/crypto.ts` — sha256File, deriveKeyFromSignature (HKDF-SHA256), encryptFile, decryptFileBuffer
+- `signDataForKey()` added to `lib/cardano.ts` — CIP-30 signData wrapper for CEK derivation
+- CEK derived deterministically: HKDF(CIP-30 signData(address, "memorymint:decrypt:v1:" + contentHash))
+- Mint flow: private + wallet users have file encrypted before upload; original content_hash sent to API
+- Gallery detail modal: auto-decrypts encrypted private memories using wallet; shows Decrypt / decrypting / error / no-wallet states
+- Plugin: `is_encrypted` column added to keepsakes table (schema + v5 migration)
+- Plugin: `create_keepsake` accepts client-provided `content_hash` and `is_encrypted` flag
+- Plugin: `format_keepsake` returns `is_encrypted` in API responses
+
+---
+
 ## [1.1.16] - 2026-04-19
 
 ### Changed

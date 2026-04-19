@@ -72,6 +72,8 @@ class KeepsakeApi {
         $keepsake_type      = sanitize_text_field($request->get_param('keepsake_type') ?? 'standard');
         $geo_input          = sanitize_text_field($request->get_param('geo_hash') ?? '');
         $tag_count          = max(0, intval($request->get_param('tag_count') ?? 0));
+        $is_encrypted       = !empty($request->get_param('is_encrypted'));
+        $client_hash        = sanitize_text_field($request->get_param('content_hash') ?? '');
 
         if (empty($title)) {
             return new \WP_REST_Response(['success' => false, 'error' => 'Title is required.'], 400);
@@ -96,8 +98,13 @@ class KeepsakeApi {
         $file_path = get_attached_file($file_attachment_id);
         $file_size = $file_path ? filesize($file_path) : 0;
 
-        // SHA-256 of the raw file bytes — used by the Midnight contract for content authenticity proofs.
-        $content_hash = ($file_path && file_exists($file_path)) ? hash_file('sha256', $file_path) : null;
+        // SHA-256 of the original (pre-encryption) file bytes.
+        // If the client encrypted the file before upload, it sends the original hash directly.
+        if ($is_encrypted && preg_match('/^[a-f0-9]{64}$/i', $client_hash)) {
+            $content_hash = strtolower($client_hash);
+        } else {
+            $content_hash = ($file_path && file_exists($file_path)) ? hash_file('sha256', $file_path) : null;
+        }
 
         // Store SHA-256 of the geo string (64 hex chars) so the sidecar can use it directly.
         $geo_hash = !empty($geo_input) ? hash('sha256', $geo_input) : null;
@@ -116,6 +123,7 @@ class KeepsakeApi {
             'file_url'           => $file_url,
             'file_size'          => $file_size,
             'content_hash'       => $content_hash,
+            'is_encrypted'       => $is_encrypted ? 1 : 0,
             'geo_hash'           => $geo_hash,
             'tag_count'          => $tag_count,
             'mint_status'        => 'pending',
@@ -350,6 +358,7 @@ class KeepsakeApi {
             'thumbnail_url'    => $keepsake->thumbnail_url ?? null,
             'file_size'        => intval($keepsake->file_size),
             'content_hash'     => $keepsake->content_hash ?? null,
+            'is_encrypted'     => (bool)($keepsake->is_encrypted ?? false),
             'tag_count'        => intval($keepsake->tag_count ?? 0),
             'tx_hash'          => $keepsake->tx_hash,
             'asset_id'         => $keepsake->asset_id,
