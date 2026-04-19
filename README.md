@@ -666,9 +666,16 @@ Users pay in fiat (Stripe or similar). Zero crypto friction — no wallet requir
 | Next.js frontend — `app/midnight/revoke` page | ✅ Complete |
 | Compact contract — 8 circuits, smoke tested on preprod | ✅ Complete (2026-04-18) |
 | Midnight sidecar — all routes | ✅ Complete |
-| Content re-encryption on transfer | 🔲 Planned |
-| Private Keepsake (Midnight-only mint path) | 🔲 Planned |
-| Mainnet deployment | Pending ecosystem PR approval |
+| Content re-encryption on transfer | 🔲 Planned (post-launch) |
+| Private Keepsake (Midnight-only mint path) | 🔲 Planned (post-launch) |
+| Next.js frontend — blurred thumbnail generation | 🔲 Blocked (needs IPFS on VPS) |
+| Next.js frontend — CIP-30 + Midnight DApp Connector | 🔲 Blocked (Midnight mainnet) |
+| VPS — deploy plugin v1.1.20 + run DB migrations | 🔲 Blocked (waiting for SSH from PB) |
+| VPS — Docker proof server (port 6300) + Midnight sidecar + PM2 | 🔲 Blocked (waiting for SSH from PB) |
+| VPS — self-hosted IPFS node + pin placeholder thumbnail | 🔲 Blocked (waiting for SSH from PB) |
+| Ecosystem — MIP deployment auth PR | 🔲 Planned (pre-mainnet) |
+| Ecosystem — awesome-dapps PR | 🔲 Planned (post all features) |
+| Mainnet deployment | 🔲 Pending MIP PR approval |
 
 ---
 
