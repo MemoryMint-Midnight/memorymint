@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.8] - 2026-04-19
+
+### Changed
+- Deploy workflow: switch from SSH key auth to password-based rsync over SSH via sshpass — Namecheap does not honour cPanel-imported SSH keys
+
+---
+
 ## [1.1.7] - 2026-04-19
 
 ### Changed

@@ -3,7 +3,7 @@
  * Plugin Name: Memory Mint
  * Plugin URI: https://memorymint.io
  * Description: Mint precious moments as permanent digital keepsakes on Cardano and Midnight. Backend API for the Memory Mint Next.js frontend.
- * Version: 1.1.7
+ * Version: 1.1.8
  * Author: Memory Mint
  * Author URI: https://memorymint.io
  * License: GPL v2 or later
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Plugin constants
-define('MEMORYMINT_VERSION', '1.1.7');
+define('MEMORYMINT_VERSION', '1.1.8');
 define('MEMORYMINT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MEMORYMINT_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MEMORYMINT_PLUGIN_BASENAME', plugin_basename(__FILE__));

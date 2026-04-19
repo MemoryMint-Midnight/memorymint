@@ -30,13 +30,12 @@ jobs:
         env:
           NEXT_PUBLIC_WORDPRESS_API_URL: ${{ secrets.NEXT_PUBLIC_WORDPRESS_API_URL }}
 
-      - name: Deploy to Namecheap via SSH
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avzr --delete
-          path: frontend/out/
-          remote_path: /home/memohecy/public_html/
-          remote_host: ${{ secrets.FTP_SERVER }}
-          remote_port: 22
-          remote_user: ${{ secrets.FTP_USERNAME }}
-          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      - name: Deploy via rsync over SSH
+        run: |
+          sshpass -p "${{ secrets.FTP_PASSWORD }}" rsync -avzr --delete \
+            -e "ssh -o StrictHostKeyChecking=no -p 22" \
+            ./frontend/out/ \
+            ${{ secrets.FTP_USERNAME }}@${{ secrets.FTP_SERVER }}:/home/memohecy/public_html/
