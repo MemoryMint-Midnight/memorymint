@@ -8,8 +8,8 @@
  * Wire format: [12 bytes IV][AES-GCM ciphertext + 16-byte tag]
  */
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2)
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(hex.length / 2) as Uint8Array<ArrayBuffer>
   for (let i = 0; i < hex.length; i += 2) {
     bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16)
   }
