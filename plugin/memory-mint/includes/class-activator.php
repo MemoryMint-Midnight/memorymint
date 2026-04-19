@@ -41,7 +41,7 @@ class Activator {
             policy_id varchar(64) DEFAULT NULL,
             mint_status enum('pending','minting','minted','failed') NOT NULL DEFAULT 'pending',
             midnight_address varchar(128) DEFAULT NULL,
-            midnight_status enum('pending','minting','minted','failed','skipped') NOT NULL DEFAULT 'pending',
+            midnight_status enum('pending','minting','minted','failed','skipped','revoked') NOT NULL DEFAULT 'pending',
             service_fee_paid decimal(10,2) DEFAULT 0.00,
             network_fee_ada decimal(20,6) DEFAULT 0.000000,
             wallet_address varchar(128) DEFAULT NULL,

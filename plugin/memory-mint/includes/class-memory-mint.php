@@ -104,6 +104,9 @@ class MemoryMint {
 
         $album_api = new Api\AlbumApi();
         $album_api->register_routes();
+
+        $midnight_api = new Api\MidnightApi();
+        $midnight_api->register_routes();
     }
 
     public function enable_cors() {
@@ -278,6 +281,20 @@ class MemoryMint {
         add_option('memorymint_service_fee_image_batch', '10.00');
         add_option('memorymint_service_fee_video_batch', '20.00');
         add_option('memorymint_service_fee_audio_batch', '10.00');
+
+        // v4: add 'revoked' to midnight_status enum
+        $keepsakes_table    = $wpdb->prefix . 'memorymint_keepsakes';
+        $enum_check = $wpdb->get_var("
+            SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME   = '$keepsakes_table'
+              AND COLUMN_NAME  = 'midnight_status'
+        ");
+        if ($enum_check && strpos($enum_check, 'revoked') === false) {
+            $wpdb->query("ALTER TABLE $keepsakes_table
+                MODIFY COLUMN midnight_status
+                enum('pending','minting','minted','failed','skipped','revoked') NOT NULL DEFAULT 'pending'");
+        }
 
         // v3: create album tables for existing installs
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';

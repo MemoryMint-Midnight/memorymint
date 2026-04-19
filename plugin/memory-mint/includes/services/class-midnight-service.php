@@ -93,6 +93,126 @@ class MidnightService {
     }
 
     /**
+     * Call POST /api/v1/midnight/:addr/prove on the sidecar.
+     *
+     * Returns: ['success' => bool, 'tx_id' => string, 'error' => string]
+     */
+    public function prove_memory(
+        string $user_mnemonic,
+        string $contract_address,
+        string $proof_type,
+        ?int   $cutoff_timestamp
+    ): array {
+        if (!$this->is_configured()) {
+            return ['success' => false, 'error' => 'Midnight sidecar not configured.'];
+        }
+
+        $payload = ['proofType' => $proof_type, 'userMnemonic' => $user_mnemonic];
+        if ($proof_type === 'created_before' && $cutoff_timestamp !== null) {
+            $payload['cutoffTimestamp'] = $cutoff_timestamp;
+        }
+
+        $response = wp_remote_post(
+            $this->sidecar_url . '/api/v1/midnight/' . rawurlencode($contract_address) . '/prove',
+            [
+                'headers' => ['Content-Type' => 'application/json', 'x-api-secret' => $this->api_secret],
+                'body'    => json_encode($payload),
+                'timeout' => 300,
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code !== 200) {
+            $err = is_array($body) ? ($body['error'] ?? "HTTP $code") : "HTTP $code";
+            return ['success' => false, 'error' => $err];
+        }
+
+        return ['success' => true, 'tx_id' => is_array($body) ? ($body['txId'] ?? '') : ''];
+    }
+
+    /**
+     * Call POST /api/v1/midnight/:addr/transfer on the sidecar.
+     * Requires both the current owner mnemonic and the new owner mnemonic.
+     *
+     * Returns: ['success' => bool, 'tx_hash' => string, 'error' => string]
+     */
+    public function transfer_memory(
+        string $user_mnemonic,
+        string $new_owner_mnemonic,
+        string $contract_address
+    ): array {
+        if (!$this->is_configured()) {
+            return ['success' => false, 'error' => 'Midnight sidecar not configured.'];
+        }
+
+        $response = wp_remote_post(
+            $this->sidecar_url . '/api/v1/midnight/' . rawurlencode($contract_address) . '/transfer',
+            [
+                'headers' => ['Content-Type' => 'application/json', 'x-api-secret' => $this->api_secret],
+                'body'    => json_encode(['userMnemonic' => $user_mnemonic, 'newOwnerMnemonic' => $new_owner_mnemonic]),
+                'timeout' => 300,
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code !== 200) {
+            $err = is_array($body) ? ($body['error'] ?? "HTTP $code") : "HTTP $code";
+            return ['success' => false, 'error' => $err];
+        }
+
+        return ['success' => true, 'tx_hash' => is_array($body) ? ($body['txHash'] ?? '') : ''];
+    }
+
+    /**
+     * Call POST /api/v1/midnight/:addr/revoke on the sidecar.
+     *
+     * Returns: ['success' => bool, 'tx_hash' => string, 'error' => string]
+     */
+    public function revoke_memory(
+        string $user_mnemonic,
+        string $contract_address
+    ): array {
+        if (!$this->is_configured()) {
+            return ['success' => false, 'error' => 'Midnight sidecar not configured.'];
+        }
+
+        $response = wp_remote_post(
+            $this->sidecar_url . '/api/v1/midnight/' . rawurlencode($contract_address) . '/revoke',
+            [
+                'headers' => ['Content-Type' => 'application/json', 'x-api-secret' => $this->api_secret],
+                'body'    => json_encode(['userMnemonic' => $user_mnemonic]),
+                'timeout' => 300,
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code !== 200) {
+            $err = is_array($body) ? ($body['error'] ?? "HTTP $code") : "HTTP $code";
+            return ['success' => false, 'error' => $err];
+        }
+
+        return ['success' => true, 'tx_hash' => is_array($body) ? ($body['txHash'] ?? '') : ''];
+    }
+
+    /**
      * Hash a Cardano asset into the 32-byte hex form the sidecar expects.
      * cardanoAssetId = SHA-256( policyId_bytes ++ assetName_bytes )
      */

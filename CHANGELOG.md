@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.11] - 2026-04-19
+
+### Added
+- `POST memorymint/v1/midnight/{id}/prove` — proxy endpoint: validates ownership, decrypts user mnemonic, calls sidecar `/api/v1/midnight/:addr/prove`; supports all four proof types (ownership, content_authentic, created_before, contains_tag)
+- `POST memorymint/v1/midnight/{id}/transfer` — proxy endpoint: looks up recipient by email, fetches both mnemonics, calls sidecar `/api/v1/midnight/:addr/transfer`, then updates keepsake `user_id` in DB to complete ownership transfer
+- `POST memorymint/v1/midnight/{id}/revoke` — proxy endpoint: calls sidecar `/api/v1/midnight/:addr/revoke`, then sets `midnight_status = 'revoked'` in DB (irreversible)
+- `prove_memory()`, `transfer_memory()`, `revoke_memory()` methods added to `MidnightService`
+- `MidnightApi` registered in `MemoryMint::register_api_routes()`
+
+### Changed
+- `midnight_status` enum extended with `'revoked'` value in `class-activator.php` schema definition
+- DB migration (v4) in `maybe_run_migrations()` — ALTER TABLE adds `'revoked'` to existing installs via `information_schema` check
+
+---
+
 ## [1.1.10] - 2026-04-19
 
 ### Changed
