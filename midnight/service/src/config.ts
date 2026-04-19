@@ -10,13 +10,15 @@ export const MIDNIGHT = {
 
 // ── Service ───────────────────────────────────────────────────────────────────
 export const SERVICE = {
-  port:      parseInt(process.env.PORT ?? '4000', 10),
+  port:             parseInt(process.env.PORT ?? '4000', 10),
   // Secret key used to sign JWTs issued by the WordPress plugin.
   // The sidecar validates these to confirm the caller is an authenticated user.
-  jwtSecret: process.env.MIDNIGHT_JWT_SECRET ?? '',
+  jwtSecret:        process.env.MIDNIGHT_JWT_SECRET ?? '',
   // Shared secret between Next.js/WordPress and this sidecar.
   // Set the same value in both places — prevents unauthenticated calls.
-  apiSecret: process.env.MIDNIGHT_API_SECRET ?? '',
+  apiSecret:        process.env.MIDNIGHT_API_SECRET ?? '',
+  // Path to the encrypted private state file — survives sidecar restarts.
+  privateStatePath: process.env.PRIVATE_STATE_PATH ?? './midnight-private-state.json',
 } as const;
 
 // ── Wallet seed (server-side wallet for deploying contracts) ──────────────────

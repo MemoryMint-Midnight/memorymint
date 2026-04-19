@@ -14,10 +14,12 @@
  *   cardanoAssetId: string,   // hex 32 bytes — SHA-256 of (policyId ++ assetName)
  * }
  *
- * Response: { contractAddress: string }
+ * Response:  { contractAddress: string }
+ * Timeout:   { status: 'pending', message: string }  HTTP 202
  */
 
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { deployMemoryToken } from '../midnight/contract.js';
 
@@ -34,7 +36,7 @@ const MintBody = z.object({
   cardanoAssetId: hexBytes32,
 });
 
-mintRouter.post('/', async (req, res) => {
+mintRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
   const parsed = MintBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid request body', details: parsed.error.flatten() });
@@ -54,11 +56,7 @@ mintRouter.post('/', async (req, res) => {
     });
     res.json({ contractAddress });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const cause = err instanceof Error && err.cause ? String(err.cause) : undefined;
-    const stack = err instanceof Error ? err.stack?.split('\n').slice(0, 5).join(' | ') : undefined;
-    console.error('[mint] Error:', message, cause ? `| cause: ${cause}` : '', err);
-    res.status(500).json({ error: message, cause, stack });
+    next(err);
   }
 });
 

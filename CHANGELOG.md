@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.22] - 2026-04-19
+
+### Added
+- `src/midnight/errors.ts` — typed error classes: `TxTimeoutError` (with optional `txHash`), `ProofError` (with `circuit` name), `NetworkError`, `WalletError`; `classifyError()` promotes raw SDK errors to the correct type by inspecting message content
+- `src/midnight/filePrivateStateProvider.ts` — AES-256-GCM encrypted, file-backed private state provider; survives sidecar restarts during the 2-4 min proof generation window; custom JSON serializer handles `bigint` and `Uint8Array`; atomic writes via rename-with-fallback; key derived from `MIDNIGHT_API_SECRET`
+- `src/middleware/errorHandler.ts` — central Express error handler: `TxTimeoutError` → HTTP 202 (pending + optional txHash), `ProofError` → HTTP 422, `NetworkError`/`WalletError` → HTTP 503, generic → HTTP 500
+
+### Changed
+- `contract.ts` — `deployMemoryToken` wrapped with 15-min timeout; `callCircuit` wrapped with 8-min timeout; both use `withTimeout()` + `classifyError()`; switched from `inMemoryPrivateStateProvider` to `filePrivateStateProvider`
+- All route handlers — replaced inline catch blocks with `next(err)`; error handler owns HTTP status mapping
+- `config.ts` — added `privateStatePath` (env var `PRIVATE_STATE_PATH`, default `./midnight-private-state.json`)
+- `index.ts` — `errorHandler` registered as final middleware
+- `.env.example` — added `PRIVATE_STATE_PATH` with recommended VPS path (`/data/memorymint/private-state.json`)
+- `.gitignore` — added patterns to exclude `midnight-private-state.json` and `.tmp` sibling
+
+### Fixed
+- Removed dead `secretCutoffTimestamp` witness from `makeWitnesses` — `proveCreatedBefore` takes `cutoffTimestamp` as a public circuit argument, not a witness
+- Removed dead `cutoffTimestamp` field from `MemoryPrivateState` interface in `provider.ts`
+
+---
+
 ## [1.1.21] - 2026-04-19
 
 ### Added

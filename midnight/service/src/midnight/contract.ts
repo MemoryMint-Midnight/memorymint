@@ -18,7 +18,9 @@ import {
   deriveUserSecretKey,
   type MemoryPrivateState,
 } from './provider.js';
-import { inMemoryPrivateStateProvider } from './inMemoryPrivateStateProvider.js';
+import { filePrivateStateProvider } from './filePrivateStateProvider.js';
+import { TxTimeoutError, classifyError } from './errors.js';
+import { SERVICE } from '../config.js';
 
 // ── Lazy-load generated contract via ESM import() to share the module cache ──
 // IMPORTANT: Do NOT use createRequire/require() here — tsx's CJS hook transforms
@@ -41,6 +43,23 @@ async function getContract(): Promise<any> {
   return _Contract;
 }
 
+// ── Timeout helpers ───────────────────────────────────────────────────────────
+
+const TX_DEPLOY_TIMEOUT_MS  = 15 * 60 * 1000; // 15 min — deploy + mintMemory (two proof rounds)
+const TX_CIRCUIT_TIMEOUT_MS =  8 * 60 * 1000; // 8 min  — single circuit call
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new TxTimeoutError(`"${label}" timed out after ${ms / 60_000} min`)),
+        ms,
+      ),
+    ),
+  ]);
+}
+
 // ── Witnesses — bridge HTTP request data → Compact witness functions ──────────
 
 function makeWitnesses(privateState: MemoryPrivateState) {
@@ -52,7 +71,6 @@ function makeWitnesses(privateState: MemoryPrivateState) {
     secretTagCount:          ({ privateState: ps }: any) => [ps, ps.tagCount],
     secretCardanoAssetId:    ({ privateState: ps }: any) => [ps, ps.cardanoAssetId],
     secretNewOwnerCommitment:({ privateState: ps }: any) => [ps, ps.newOwnerCommit],
-    secretCutoffTimestamp:   ({ privateState: ps }: any) => [ps, ps.cutoffTimestamp],
   };
 }
 
@@ -80,8 +98,16 @@ export interface MintMemoryInput {
 }
 
 export async function deployMemoryToken(input: MintMemoryInput): Promise<string> {
-  const providers = await getProviders();
-  const privateStateProvider = inMemoryPrivateStateProvider();
+  try {
+    return await withTimeout(_deployMemoryToken(input), TX_DEPLOY_TIMEOUT_MS, 'deployMemoryToken');
+  } catch (err) {
+    throw classifyError(err, 'mintMemory');
+  }
+}
+
+async function _deployMemoryToken(input: MintMemoryInput): Promise<string> {
+  const providers            = await getProviders();
+  const privateStateProvider = filePrivateStateProvider(SERVICE.privateStatePath, SERVICE.apiSecret);
 
   const ownerSecretKey = deriveUserSecretKey(input.userMnemonic);
 
@@ -93,7 +119,6 @@ export async function deployMemoryToken(input: MintMemoryInput): Promise<string>
     tagCount:        input.tagCount,
     cardanoAssetId:  input.cardanoAssetId,
     newOwnerCommit:  new Uint8Array(32),
-    cutoffTimestamp: 0n,
   };
 
   const compiled = await makeCompiledContract(initialPrivateState);
@@ -141,20 +166,37 @@ export async function callCircuit(
   privateStateUpdates: Partial<MemoryPrivateState>,
   circuitArgs:         unknown[] = [],
 ): Promise<string> {
-  const providers = await getProviders();
-  const privateStateProvider = inMemoryPrivateStateProvider();
+  try {
+    return await withTimeout(
+      _callCircuit(contractAddress, circuit, userMnemonic, privateStateUpdates, circuitArgs),
+      TX_CIRCUIT_TIMEOUT_MS,
+      circuit,
+    );
+  } catch (err) {
+    throw classifyError(err, circuit);
+  }
+}
+
+async function _callCircuit(
+  contractAddress:     string,
+  circuit:             string,
+  userMnemonic:        string,
+  privateStateUpdates: Partial<MemoryPrivateState>,
+  circuitArgs:         unknown[],
+): Promise<string> {
+  const providers            = await getProviders();
+  const privateStateProvider = filePrivateStateProvider(SERVICE.privateStatePath, SERVICE.apiSecret);
 
   const secretKey = deriveUserSecretKey(userMnemonic);
 
   const basePrivateState: MemoryPrivateState = {
     secretKey,
-    contentHash:     new Uint8Array(32),
-    timestamp:       0n,
-    geoHash:         new Uint8Array(32),
-    tagCount:        0n,
-    cardanoAssetId:  new Uint8Array(32),
-    newOwnerCommit:  new Uint8Array(32),
-    cutoffTimestamp: 0n,
+    contentHash:    new Uint8Array(32),
+    timestamp:      0n,
+    geoHash:        new Uint8Array(32),
+    tagCount:       0n,
+    cardanoAssetId: new Uint8Array(32),
+    newOwnerCommit: new Uint8Array(32),
     ...privateStateUpdates,
   };
 

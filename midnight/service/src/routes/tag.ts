@@ -8,11 +8,12 @@
  * Body (JSON):
  * { userMnemonic: string }   // BIP-39 mnemonic — sk derived internally
  *
- * Response:
- * { txHash: string }
+ * Response:  { txHash: string }
+ * Timeout:   { status: 'pending', message: string }  HTTP 202
  */
 
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { callCircuit } from '../midnight/contract.js';
 
@@ -22,7 +23,7 @@ const TagBody = z.object({
   userMnemonic: z.string().min(1, 'userMnemonic is required'),
 });
 
-tagRouter.post('/', async (req, res) => {
+tagRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
   const { contractAddress } = req.params as { contractAddress: string };
 
   const parsed = TagBody.safeParse(req.body);
@@ -35,7 +36,6 @@ tagRouter.post('/', async (req, res) => {
     const txHash = await callCircuit(contractAddress, 'updateTag', parsed.data.userMnemonic, {});
     res.json({ txHash });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
+    next(err);
   }
 });

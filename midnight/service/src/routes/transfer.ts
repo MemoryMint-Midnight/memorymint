@@ -10,11 +10,12 @@
  *   newOwnerMnemonic: string,   // new owner's BIP-39 mnemonic — commitment computed server-side
  * }
  *
- * Response:
- * { txHash: string }
+ * Response:  { txHash: string }
+ * Timeout:   { status: 'pending', message: string }  HTTP 202
  */
 
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { callCircuit } from '../midnight/contract.js';
 import { computeOwnerCommitment } from '../midnight/provider.js';
@@ -26,7 +27,7 @@ const TransferBody = z.object({
   newOwnerMnemonic: z.string().min(1, 'newOwnerMnemonic is required'),
 });
 
-transferRouter.post('/', async (req, res) => {
+transferRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
   const { contractAddress } = req.params as { contractAddress: string };
 
   const parsed = TransferBody.safeParse(req.body);
@@ -47,7 +48,6 @@ transferRouter.post('/', async (req, res) => {
     );
     res.json({ txHash });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
+    next(err);
   }
 });

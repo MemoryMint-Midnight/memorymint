@@ -54,7 +54,6 @@ export interface MemoryPrivateState {
   tagCount:          bigint;
   cardanoAssetId:    Uint8Array;
   newOwnerCommit:    Uint8Array;
-  cutoffTimestamp:   bigint;
 }
 
 export interface BuiltProviders {

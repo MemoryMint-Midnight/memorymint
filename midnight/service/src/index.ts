@@ -20,6 +20,7 @@ import { proveRouter } from './routes/prove.js';
 import { transferRouter } from './routes/transfer.js';
 import { tagRouter } from './routes/tag.js';
 import { revokeRouter } from './routes/revoke.js';
+import { errorHandler } from './middleware/errorHandler.js';
 
 // Must be set before any wallet or contract operation
 setNetworkId('preprod');
@@ -76,6 +77,10 @@ app.use('/api/v1/midnight/:contractAddress/revoke', revokeRouter);
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
+
+// ── Central error handler (must be last) ──────────────────────────────────────
+
+app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
