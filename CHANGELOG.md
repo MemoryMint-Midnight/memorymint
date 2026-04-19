@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.20] - 2026-04-19
+
+### Fixed
+- `provision_custodial_wallet`: checked `$wallet['success']` which `CardanoWalletPHP::generateWallet()` never returns — silently skipped wallet generation for every email user; now checks `$wallet['mnemonic']` and `$wallet['addresses']` instead
+
+---
+
 ## [1.1.19] - 2026-04-19
 
 ### Added

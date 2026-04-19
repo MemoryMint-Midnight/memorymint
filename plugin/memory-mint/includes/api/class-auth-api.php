@@ -735,7 +735,7 @@ class AuthApi {
             $network = get_option('memorymint_network', 'preprod');
             $wallet  = \CardanoWalletPHP::generateWallet($network);
 
-            if (empty($wallet['success'])) {
+            if (empty($wallet['mnemonic']) || empty($wallet['addresses'])) {
                 return; // Silent — don't break login if generation fails
             }
 
