@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Cardano-preprod-blue?logo=cardano" alt="Cardano" />
+  <img src="https://img.shields.io/badge/Cardano-mainnet-blue?logo=cardano" alt="Cardano" />
   <img src="https://img.shields.io/badge/Midnight-preprod-purple" alt="Midnight" />
   <img src="https://img.shields.io/badge/version-1.1.0-green" alt="Version" />
   <img src="https://img.shields.io/badge/status-private%20beta-orange" alt="Status" />
@@ -35,6 +35,8 @@ What makes MemoryMint different from cloud storage or social media:
 ---
 
 ## For the technically curious
+
+This project is built on the Midnight Network.
 
 MemoryMint is a dual-chain platform:
 

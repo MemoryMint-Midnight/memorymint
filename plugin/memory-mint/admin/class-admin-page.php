@@ -15,7 +15,8 @@ class AdminPage {
         add_action('admin_post_memorymint_generate_wallet', [$this, 'handle_generate_wallet']);
         add_action('admin_post_memorymint_test_anvil',    [$this, 'handle_test_anvil']);
         add_action('admin_post_memorymint_test_email',    [$this, 'handle_test_email']);
-        add_action('admin_post_memorymint_test_midnight', [$this, 'handle_test_midnight']);
+        add_action('admin_post_memorymint_test_midnight',   [$this, 'handle_test_midnight']);
+        add_action('admin_post_memorymint_diagnose_balance', [$this, 'handle_diagnose_balance']);
     }
 
     public function show_admin_notices() {
@@ -416,6 +417,80 @@ class AdminPage {
         } else {
             wp_redirect(admin_url('admin.php?page=memory-mint-settings&midnight_test=failed&code=' . $code));
         }
+        exit;
+    }
+
+    public function handle_diagnose_balance() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        check_admin_referer('memorymint_diagnose_balance');
+
+        $network = \MemoryMint\MemoryMint::get_network();
+        $api_key = \MemoryMint\MemoryMint::get_anvil_api_key();
+        $diag    = ['timestamp' => current_time('mysql'), 'network' => $network];
+
+        if (empty($api_key)) {
+            $diag['status']  = 'no_key';
+            $diag['message'] = 'No Anvil API key configured for ' . strtoupper($network) . '.';
+        } else {
+            $diag['api_key_preview'] = substr($api_key, 0, 8) . '…';
+
+            global $wpdb;
+            $table  = $wpdb->prefix . 'memorymint_policy_wallets';
+            $wallet = $wpdb->get_row($wpdb->prepare(
+                "SELECT payment_address FROM $table WHERE network = %s AND is_active = 1 LIMIT 1",
+                $network
+            ));
+
+            if (!$wallet) {
+                $diag['status']  = 'no_wallet';
+                $diag['message'] = 'No active policy wallet found for ' . strtoupper($network) . '.';
+            } else {
+                $base_url = $network === 'mainnet'
+                    ? 'https://api.ada-anvil.app/v1'
+                    : 'https://preprod.api.ada-anvil.app/v1';
+                $url = $base_url . '/addresses/' . rawurlencode($wallet->payment_address);
+
+                $diag['address'] = $wallet->payment_address;
+                $diag['url']     = $url;
+
+                // Also clear the balance transient so we get a fresh call.
+                delete_transient('memorymint_wallet_balance_' . md5($wallet->payment_address));
+
+                $response = wp_remote_get($url, [
+                    'headers' => ['Authorization' => 'Bearer ' . $api_key],
+                    'timeout' => 15,
+                ]);
+
+                if (is_wp_error($response)) {
+                    $diag['status']  = 'wp_error';
+                    $diag['message'] = $response->get_error_message();
+                } else {
+                    $code = wp_remote_retrieve_response_code($response);
+                    $body = wp_remote_retrieve_body($response);
+                    $diag['http_code']     = $code;
+                    $diag['status']        = 'http_' . $code;
+                    $diag['response_body'] = substr($body, 0, 800);
+
+                    // Try to parse and show the lovelace amount if present.
+                    $json = json_decode($body, true);
+                    if (is_array($json)) {
+                        foreach ((array) ($json['amount'] ?? []) as $item) {
+                            if (($item['unit'] ?? '') === 'lovelace') {
+                                $diag['lovelace_found'] = intval($item['quantity']);
+                                $diag['ada']            = round($diag['lovelace_found'] / 1_000_000, 6);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        set_transient('memorymint_balance_diagnostic', $diag, 30 * MINUTE_IN_SECONDS);
+
+        wp_redirect(admin_url('admin.php?page=memory-mint-wallet&diagnosed=1'));
         exit;
     }
 

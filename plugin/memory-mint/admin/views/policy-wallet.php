@@ -12,11 +12,13 @@ $wallets = $wpdb->get_results($wpdb->prepare(
     $network
 ));
 
-$generated = isset($_GET['generated']) && $_GET['generated'] === '1';
+$generated    = isset($_GET['generated'])  && $_GET['generated']  === '1';
+$diagnosed    = isset($_GET['diagnosed'])  && $_GET['diagnosed']  === '1';
 $new_mnemonic = get_transient('memorymint_new_wallet_mnemonic');
 if ($new_mnemonic && $generated) {
     delete_transient('memorymint_new_wallet_mnemonic');
 }
+$diag_result = get_transient('memorymint_balance_diagnostic');
 
 $error = isset($_GET['error']) ? sanitize_text_field($_GET['error']) : '';
 
@@ -175,6 +177,58 @@ $refresh_url = wp_nonce_url(
         <p style="margin-top:8px;">
             <a href="<?php echo esc_url($refresh_url); ?>">↻ Refresh balance</a>
             <span style="color:#666; font-size:12px; margin-left:8px;">Cached for 5 minutes</span>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline;">
+                <?php wp_nonce_field('memorymint_diagnose_balance'); ?>
+                <input type="hidden" name="action" value="memorymint_diagnose_balance" />
+                <button type="submit" class="button button-small">&#128270; Run Diagnostics</button>
+            </form>
         </p>
+    <?php endif; ?>
+
+    <?php if ($diag_result): ?>
+        <?php
+        $http_code  = $diag_result['http_code'] ?? null;
+        $diag_color = '#00a32a';
+        if (empty($http_code) || $http_code >= 400) $diag_color = '#d63638';
+        elseif (isset($diag_result['lovelace_found']) === false) $diag_color = '#dba617';
+        ?>
+        <div style="background:#fff; border:1px solid <?php echo $diag_color; ?>; border-left:4px solid <?php echo $diag_color; ?>; border-radius:6px; padding:16px 20px; margin-top:12px;">
+            <strong style="font-size:13px;">Balance Diagnostic — <?php echo esc_html($diag_result['timestamp']); ?> (<?php echo esc_html(strtoupper($diag_result['network'] ?? '')); ?>)</strong>
+
+            <table style="margin-top:10px; border-collapse:collapse; width:100%; font-size:12px;">
+                <?php if (!empty($diag_result['api_key_preview'])): ?>
+                <tr><td style="padding:3px 12px 3px 0; color:#555; white-space:nowrap;">API Key (preview)</td>
+                    <td><code><?php echo esc_html($diag_result['api_key_preview']); ?></code></td></tr>
+                <?php endif; ?>
+                <?php if (!empty($diag_result['address'])): ?>
+                <tr><td style="padding:3px 12px 3px 0; color:#555; white-space:nowrap;">Address</td>
+                    <td style="word-break:break-all;"><code><?php echo esc_html($diag_result['address']); ?></code></td></tr>
+                <?php endif; ?>
+                <?php if (!empty($diag_result['url'])): ?>
+                <tr><td style="padding:3px 12px 3px 0; color:#555; white-space:nowrap;">Request URL</td>
+                    <td style="word-break:break-all;"><code><?php echo esc_html($diag_result['url']); ?></code></td></tr>
+                <?php endif; ?>
+                <?php if (isset($diag_result['http_code'])): ?>
+                <tr><td style="padding:3px 12px 3px 0; color:#555; white-space:nowrap;">HTTP Status</td>
+                    <td><strong style="color:<?php echo $diag_color; ?>"><?php echo intval($diag_result['http_code']); ?></strong></td></tr>
+                <?php endif; ?>
+                <?php if (isset($diag_result['lovelace_found'])): ?>
+                <tr><td style="padding:3px 12px 3px 0; color:#555; white-space:nowrap;">Lovelace parsed</td>
+                    <td><strong style="color:#00a32a;"><?php echo number_format($diag_result['lovelace_found']); ?> lovelace = <?php echo esc_html(number_format($diag_result['ada'], 6)); ?> ADA</strong></td></tr>
+                <?php endif; ?>
+                <?php if (!empty($diag_result['message'])): ?>
+                <tr><td style="padding:3px 12px 3px 0; color:#555; white-space:nowrap;">Message</td>
+                    <td style="color:#d63638;"><?php echo esc_html($diag_result['message']); ?></td></tr>
+                <?php endif; ?>
+            </table>
+
+            <?php if (!empty($diag_result['response_body'])): ?>
+            <div style="margin-top:10px;">
+                <strong style="font-size:12px; color:#555;">Raw API Response (first 800 chars):</strong>
+                <pre style="background:#1d2327; color:#ccc; padding:10px; font-size:11px; overflow-x:auto; border-radius:4px; margin-top:6px; white-space:pre-wrap; word-break:break-all;"><?php echo esc_html($diag_result['response_body']); ?></pre>
+            </div>
+            <?php endif; ?>
+        </div>
     <?php endif; ?>
 </div>

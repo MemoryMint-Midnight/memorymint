@@ -9,7 +9,7 @@ interface SeedPhraseModalProps {
   onComplete: () => void
 }
 
-type Step = 'warning' | 'reveal' | 'done'
+type Step = 'warning' | 'reveal' | 'verify' | 'done'
 
 export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhraseModalProps) {
   const [step, setStep] = useState<Step>('warning')
@@ -20,16 +20,17 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
   const [copied, setCopied] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [verifyIndices, setVerifyIndices] = useState<[number, number]>([0, 1])
+  const [verifyInputs, setVerifyInputs] = useState<[string, string]>(['', ''])
+  const [verifyError, setVerifyError] = useState('')
 
   const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
 
   function handleClose() {
-    if (step === 'done') {
-      onComplete()
-    } else {
-      onClose()
-    }
-    // Reset for next open
+    // Block closing mid-flow — user must complete or be on warning/done step
+    if (step === 'reveal' || step === 'verify') return
+    if (step === 'done') onComplete()
+    else onClose()
     setTimeout(() => {
       setStep('warning')
       setWords([])
@@ -38,6 +39,8 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
       setConfirmed(false)
       setCopied(false)
       setError('')
+      setVerifyInputs(['', ''])
+      setVerifyError('')
     }, 300)
   }
 
@@ -54,8 +57,16 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
         setError(data.error || 'Failed to load seed phrase.')
         return
       }
-      setWords(data.mnemonic.trim().split(/\s+/))
+      const w = data.mnemonic.trim().split(/\s+/)
+      setWords(w)
       setWalletAddress(data.wallet_address || '')
+      // Pick 2 distinct random positions for the verify step
+      const a = Math.floor(Math.random() * w.length)
+      let b = Math.floor(Math.random() * (w.length - 1))
+      if (b >= a) b++
+      setVerifyIndices([a, b])
+      setVerifyInputs(['', ''])
+      setVerifyError('')
       setStep('reveal')
     } catch {
       setError('Network error. Please try again.')
@@ -64,9 +75,20 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
     }
   }
 
-  async function handleConfirmBackup() {
+  function handleAdvanceToVerify() {
+    setVerifyError('')
+    setStep('verify')
+  }
+
+  async function handleVerifyAndConfirm() {
+    const [i, j] = verifyIndices
+    const [a, b] = verifyInputs
+    if (a.trim().toLowerCase() !== words[i].toLowerCase() || b.trim().toLowerCase() !== words[j].toLowerCase()) {
+      setVerifyError('One or more words are incorrect. Check your written copy and try again.')
+      return
+    }
     setIsLoading(true)
-    setError('')
+    setVerifyError('')
     try {
       const token = sessionStorage.getItem('mmToken')
       const res = await fetch(`${apiBase}/memorymint/v1/auth/confirm-backup`, {
@@ -75,12 +97,12 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
       })
       const data = await res.json()
       if (!data.success) {
-        setError('Failed to confirm backup. Please try again.')
+        setVerifyError('Failed to confirm backup. Please try again.')
         return
       }
       setStep('done')
     } catch {
-      setError('Network error. Please try again.')
+      setVerifyError('Network error. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -110,14 +132,17 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-3xl shadow-2xl w-full max-w-lg relative overflow-hidden"
           >
-            {/* Close button */}
-            <button
-              onClick={handleClose}
-              className="absolute top-4 right-5 text-gray-400 hover:text-gray-600 text-2xl leading-none z-10"
-              aria-label="Close"
-            >
-              ×
-            </button>
+            {/* Close button — hidden mid-flow to prevent accidental dismissal */}
+            {step !== 'reveal' && step !== 'verify' && (
+              <button
+                type="button"
+                onClick={handleClose}
+                className="absolute top-4 right-5 text-gray-400 hover:text-gray-600 text-2xl leading-none z-10"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            )}
 
             <AnimatePresence mode="wait">
               {/* ─── Step 1: Warning ─── */}
@@ -130,10 +155,7 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                   className="p-8"
                 >
                   <div className="text-4xl mb-4">🔐</div>
-                  <h2
-                    className="text-3xl font-bold text-gray-800 mb-3"
-                    style={{ fontFamily: "'Grape Nuts', cursive" }}
-                  >
+                  <h2 className="text-3xl font-bold text-gray-800 mb-3 font-schoolbell">
                     Your Wallet Backup
                   </h2>
                   <p className="text-gray-600 mb-4 leading-relaxed">
@@ -155,6 +177,7 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                   )}
 
                   <button
+                    type="button"
                     onClick={handleShowPhrase}
                     disabled={isLoading}
                     className="w-full bg-mint-gold hover:opacity-90 disabled:opacity-50 text-white font-semibold py-3 rounded-2xl transition-all"
@@ -173,10 +196,7 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                   exit={{ opacity: 0, x: -20 }}
                   className="p-8"
                 >
-                  <h2
-                    className="text-3xl font-bold text-gray-800 mb-1"
-                    style={{ fontFamily: "'Grape Nuts', cursive" }}
-                  >
+                  <h2 className="text-3xl font-bold text-gray-800 mb-1 font-schoolbell">
                     Your Seed Phrase
                   </h2>
                   <p className="text-sm text-gray-500 mb-4">
@@ -209,6 +229,7 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
 
                   {/* Copy button */}
                   <button
+                    type="button"
                     onClick={handleCopyAll}
                     className="w-full mb-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2.5 rounded-2xl transition-all text-sm"
                   >
@@ -222,16 +243,17 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                     </p>
                   )}
 
-                  {/* Confirmation checkbox */}
-                  <label className="flex items-start gap-3 mb-5 cursor-pointer group">
+                  {/* Confirmation checkbox — only enabled after words are revealed */}
+                  <label className={`flex items-start gap-3 mb-5 group ${revealed ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
                     <input
                       type="checkbox"
                       checked={confirmed}
-                      onChange={(e) => setConfirmed(e.target.checked)}
-                      className="mt-1 w-4 h-4 accent-[#ffbd59] cursor-pointer"
+                      onChange={(e) => revealed && setConfirmed(e.target.checked)}
+                      disabled={!revealed}
+                      className="mt-1 w-4 h-4 accent-[#ffbd59] cursor-pointer disabled:cursor-not-allowed"
                     />
                     <span className="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">
-                      I have written down my seed phrase and stored it somewhere safe
+                      I have written down all 24 words in order and stored them somewhere safe
                     </span>
                   </label>
 
@@ -240,16 +262,84 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                   )}
 
                   <button
-                    onClick={handleConfirmBackup}
-                    disabled={!confirmed || isLoading}
+                    type="button"
+                    onClick={handleAdvanceToVerify}
+                    disabled={!confirmed || !revealed}
                     className="w-full bg-mint-gold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-2xl transition-all"
                   >
-                    {isLoading ? 'Saving…' : 'Complete Backup'}
+                    Verify Backup →
                   </button>
                 </motion.div>
               )}
 
-              {/* ─── Step 3: Done ─── */}
+              {/* ─── Step 3: Verify ─── */}
+              {step === 'verify' && (
+                <motion.div
+                  key="verify"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="p-8"
+                >
+                  <div className="text-4xl mb-4">✍️</div>
+                  <h2 className="text-3xl font-bold text-gray-800 mb-2 font-schoolbell">
+                    Verify Your Backup
+                  </h2>
+                  <p className="text-gray-600 mb-6 text-sm leading-relaxed">
+                    Enter the two words below from your written copy to confirm you saved it correctly.
+                  </p>
+
+                  <div className="space-y-4 mb-6">
+                    {([0, 1] as const).map((slot) => (
+                      <div key={slot}>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">
+                          Word #{verifyIndices[slot] + 1}
+                        </label>
+                        <input
+                          type="text"
+                          value={verifyInputs[slot]}
+                          onChange={(e) => {
+                            const updated: [string, string] = [...verifyInputs] as [string, string]
+                            updated[slot] = e.target.value
+                            setVerifyInputs(updated)
+                            setVerifyError('')
+                          }}
+                          placeholder={`Enter word #${verifyIndices[slot] + 1}`}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {verifyError && (
+                    <p className="text-red-500 text-sm mb-4">{verifyError}</p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleVerifyAndConfirm}
+                    disabled={!verifyInputs[0].trim() || !verifyInputs[1].trim() || isLoading}
+                    className="w-full bg-mint-gold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-2xl transition-all"
+                  >
+                    {isLoading ? 'Confirming…' : 'Complete Backup'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setVerifyError(''); setStep('reveal') }}
+                    disabled={isLoading}
+                    className="w-full mt-3 text-sm text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40"
+                  >
+                    ← Back to seed phrase
+                  </button>
+                </motion.div>
+              )}
+
+              {/* ─── Step 4: Done ─── */}
               {step === 'done' && (
                 <motion.div
                   key="done"
@@ -259,10 +349,7 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                   className="p-8 text-center"
                 >
                   <div className="text-5xl mb-4">✅</div>
-                  <h2
-                    className="text-3xl font-bold text-gray-800 mb-3"
-                    style={{ fontFamily: "'Grape Nuts', cursive" }}
-                  >
+                  <h2 className="text-3xl font-bold text-gray-800 mb-3 font-schoolbell">
                     Backup Complete
                   </h2>
                   <p className="text-gray-600 mb-6 leading-relaxed">
@@ -270,6 +357,7 @@ export default function SeedPhraseModal({ isOpen, onClose, onComplete }: SeedPhr
                     control of your wallet — keep that seed phrase safe!
                   </p>
                   <button
+                    type="button"
                     onClick={handleClose}
                     className="w-full bg-mint-gold hover:opacity-90 text-white font-semibold py-3 rounded-2xl transition-all"
                   >

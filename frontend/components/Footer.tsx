@@ -70,7 +70,7 @@ export default function Footer() {
               </div>
               <div>
                 <p className="font-medium text-gray-700">Powered by Midnight</p>
-                <p className="text-xs opacity-75">Optional privacy protection</p>
+                <p className="text-xs opacity-75">Rational privacy protection</p>
               </div>
             </div>
           </div>

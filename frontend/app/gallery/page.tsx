@@ -16,6 +16,8 @@ interface Memory {
   privacy: 'public' | 'shared' | 'private'
   txHash?: string
   mintStatus?: string
+  midnightAddress?: string | null
+  midnightStatus?: string
 }
 
 interface Album {
@@ -274,6 +276,8 @@ export default function GalleryPage() {
             privacy: k.privacy as 'public' | 'shared' | 'private',
             txHash: k.tx_hash || undefined,
             mintStatus: k.mint_status,
+            midnightAddress: k.midnight_address ?? null,
+            midnightStatus: k.midnight_status,
           }))
           setMemories(realMemories)
         } else {
@@ -1195,12 +1199,29 @@ export default function GalleryPage() {
                 {/* Midnight section for private */}
                 {detailMemory.privacy === 'private' && (
                   <div className="mt-6 p-4 bg-purple-50 rounded-xl border-2 border-purple-200">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-gray-800">🌙 Midnight Privacy Active</p>
-                        <p className="text-sm text-gray-600">Sensitive details are protected</p>
-                      </div>
-                      <button className="text-xs text-purple-600 font-medium hover:underline">Manage</button>
+                    <p className="font-medium text-gray-800 mb-1">🌙 Midnight Privacy Active</p>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Status: <span className="font-semibold text-purple-700">{detailMemory.midnightStatus || 'not minted'}</span>
+                    </p>
+                    <div className="flex gap-2 flex-wrap">
+                      <Link
+                        href={`/midnight/prove?id=${detailMemory.id}`}
+                        className="flex-1 min-w-[80px] text-center text-xs bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-3 rounded-xl transition-colors"
+                      >
+                        🔐 Prove
+                      </Link>
+                      <Link
+                        href={`/midnight/transfer?id=${detailMemory.id}`}
+                        className="flex-1 min-w-[80px] text-center text-xs bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-3 rounded-xl transition-colors"
+                      >
+                        ↗️ Transfer
+                      </Link>
+                      <Link
+                        href={`/midnight/revoke?id=${detailMemory.id}`}
+                        className="flex-1 min-w-[80px] text-center text-xs bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-3 rounded-xl transition-colors"
+                      >
+                        🗑 Revoke
+                      </Link>
                     </div>
                   </div>
                 )}
