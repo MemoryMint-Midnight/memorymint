@@ -34,7 +34,7 @@ export function middleware(request: NextRequest) {
     response.cookies.set('mm_preview', BYPASS_KEY, {
       httpOnly: true,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge: 60 * 60 * 24 * 365, // 1 year
     })
     return response
   }

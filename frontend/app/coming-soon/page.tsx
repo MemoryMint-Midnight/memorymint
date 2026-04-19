@@ -130,7 +130,7 @@ export default function ComingSoonPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('preview') === 'mmpreview') {
-      document.cookie = 'mmbypass=1; max-age=86400; path=/'
+      document.cookie = 'mmbypass=1; max-age=31536000; path=/'
       window.location.replace('/')
     }
   }, [])

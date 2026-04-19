@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.15] - 2026-04-19
+
+### Changed
+- Admin bypass cookie extended from 24 hours to 1 year — no need to re-enter the access key daily
+
+---
+
 ## [1.1.14] - 2026-04-19
 
 ### Added
