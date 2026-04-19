@@ -393,6 +393,15 @@ class AuthApi {
 
         $user = get_user_by('email', $email);
 
+        // Wallet-only gate: users who completed seed backup must use CIP-30 wallet login
+        if ($user && get_user_meta($user->ID, 'memorymint_auth_method', true) === 'wallet') {
+            return new \WP_REST_Response([
+                'success'     => false,
+                'wallet_only' => true,
+                'error'       => 'This account uses wallet login. Please connect your Cardano wallet instead.',
+            ], 403);
+        }
+
         if (!$user) {
             $username = 'mm_' . substr(md5($email), 0, 10);
             $password = wp_generate_password(32, true, true);

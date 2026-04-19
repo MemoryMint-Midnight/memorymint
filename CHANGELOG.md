@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.21] - 2026-04-19
+
+### Added
+- Wallet-only login gate (#11): `email_connect` returns `{ wallet_only: true }` (HTTP 403) when the email belongs to an account with `auth_method = 'wallet'` (set after seed backup confirmation)
+- `LoginModal`: detects `wallet_only` response and shows a dedicated notice panel explaining seed backup is complete, email login is disabled, and offering a direct "Connect Wallet" button
+
+---
+
 ## [1.1.20] - 2026-04-19
 
 ### Fixed

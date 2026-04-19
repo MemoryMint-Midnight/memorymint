@@ -30,7 +30,7 @@ const WALLET_DOWNLOADS: Record<string, string> = {
 }
 
 export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
-  const [loginMethod, setLoginMethod] = useState<'choose' | 'wallet' | 'email' | 'otp'>('choose')
+  const [loginMethod, setLoginMethod] = useState<'choose' | 'wallet' | 'email' | 'otp' | 'wallet_only'>('choose')
   const [email, setEmail] = useState('')
   const [otp, setOtp] = useState('')
   const [debugOtp, setDebugOtp] = useState<string | null>(null)
@@ -121,6 +121,10 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
       const data = await res.json()
 
       if (!res.ok || !data.success) {
+        if (data.wallet_only) {
+          setLoginMethod('wallet_only')
+          return
+        }
         setError(data.error || 'Could not send code. Please try again.')
         return
       }
@@ -353,6 +357,32 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
                 <p className="text-center text-sm text-gray-500 mt-4">
                   We'll email you a 6-digit verification code.
                 </p>
+              </div>
+            )}
+
+            {/* Wallet-only notice — shown when email belongs to a backed-up account */}
+            {loginMethod === 'wallet_only' && (
+              <div className="text-center">
+                <div className="text-5xl mb-4">🔐</div>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Wallet login required</h3>
+                <p className="text-gray-600 text-sm mb-6 leading-relaxed">
+                  This account&apos;s seed phrase has been backed up and email login has been disabled.
+                  Import your seed phrase into a Cardano wallet (Lace, Eternl, Vespr) and connect below.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setLoginMethod('wallet')}
+                  className="w-full bg-mint-gold hover:bg-amber-500 text-gray-800 font-semibold py-3 rounded-xl transition-all shadow-md mb-3"
+                >
+                  🔗 Connect Wallet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setLoginMethod('choose'); setEmail('') }}
+                  className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  ← Use a different email
+                </button>
               </div>
             )}
 
