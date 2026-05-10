@@ -1,9 +1,7 @@
 /**
  * Cardano Blockchain Integration
- * Using Anvil API for testnet operations
  */
 
-const ANVIL_API_KEY = process.env.NEXT_PUBLIC_ANVIL_API_KEY
 const CARDANO_NETWORK = process.env.NEXT_PUBLIC_CARDANO_NETWORK || 'preprod'
 export const EXPLORER_BASE = CARDANO_NETWORK === 'mainnet'
   ? 'https://cardanoscan.io'
@@ -45,15 +43,6 @@ export const getInstalledWallets = (): InstalledWallet[] => {
       name: (cardano[key].name as string) || key,
       icon: (cardano[key].icon as string) || null,
     }))
-}
-
-export interface Memory {
-  id?: string
-  title: string
-  description: string
-  image: string
-  timestamp: number
-  txHash?: string
 }
 
 /**
@@ -201,120 +190,6 @@ export const getWalletAddress = async (walletApi: any): Promise<string> => {
   }
 }
 
-/**
- * Mint a Memory NFT on Cardano
- * Using Anvil API for testnet minting
- */
-export const mintMemoryNFT = async (
-  walletApi: any,
-  memory: Memory
-): Promise<{ txHash: string; assetId: string }> => {
-  try {
-    // Get wallet address
-    const address = await getWalletAddress(walletApi)
-
-    // Prepare metadata for the NFT (CIP-25 standard)
-    const metadata = {
-      '721': {
-        [Date.now().toString()]: {
-          [memory.title.replace(/\s+/g, '_')]: {
-            name: memory.title,
-            description: memory.description,
-            image: memory.image,
-            mediaType: 'image/png',
-            timestamp: memory.timestamp,
-            creator: 'Memory Mint',
-            version: '1.0',
-          },
-        },
-      },
-    }
-
-    // Call Anvil API to mint NFT
-    const response = await fetch('https://api.anvil.app/v1/cardano/mint', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ANVIL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        network: CARDANO_NETWORK,
-        address: address,
-        metadata: metadata,
-        policyScript: {
-          type: 'all',
-          scripts: [
-            {
-              type: 'sig',
-              keyHash: address,
-            },
-          ],
-        },
-      }),
-    })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.message || 'Failed to mint NFT')
-    }
-
-    const result = await response.json()
-
-    // Sign the transaction with the wallet
-    const signedTx = await walletApi.signTx(result.cborHex, true)
-    const txHash = await walletApi.submitTx(signedTx)
-
-    return {
-      txHash,
-      assetId: result.assetId,
-    }
-  } catch (error) {
-    console.error('Error minting memory NFT:', error)
-    throw error
-  }
-}
-
-/**
- * Get user's minted memories
- */
-export const getUserMemories = async (walletApi: any): Promise<Memory[]> => {
-  try {
-    const address = await getWalletAddress(walletApi)
-
-    // Call Anvil API to get user's NFTs
-    const response = await fetch(
-      `https://api.anvil.app/v1/cardano/addresses/${address}/nfts?network=${CARDANO_NETWORK}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${ANVIL_API_KEY}`,
-        },
-      }
-    )
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch memories')
-    }
-
-    const nfts = await response.json()
-
-    // Filter and format Memory Mint NFTs
-    const memories: Memory[] = nfts
-      .filter((nft: any) => nft.metadata?.creator === 'Memory Mint')
-      .map((nft: any) => ({
-        id: nft.assetId,
-        title: nft.metadata.name,
-        description: nft.metadata.description,
-        image: nft.metadata.image,
-        timestamp: nft.metadata.timestamp,
-        txHash: nft.txHash,
-      }))
-
-    return memories
-  } catch (error) {
-    console.error('Error getting user memories:', error)
-    return []
-  }
-}
 
 // ---- Bech32 utilities for address decoding ----------------------------------
 
@@ -413,26 +288,3 @@ export const getStakeAddress = async (walletApi: any): Promise<string | null> =>
   }
 }
 
-/**
- * Verify transaction on Cardano blockchain
- */
-export const verifyTransaction = async (txHash: string): Promise<boolean> => {
-  try {
-    const response = await fetch(
-      `https://api.anvil.app/v1/cardano/transactions/${txHash}?network=${CARDANO_NETWORK}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${ANVIL_API_KEY}`,
-        },
-      }
-    )
-
-    if (!response.ok) return false
-
-    const tx = await response.json()
-    return tx.confirmed === true
-  } catch (error) {
-    console.error('Error verifying transaction:', error)
-    return false
-  }
-}

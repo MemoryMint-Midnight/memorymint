@@ -68,13 +68,28 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
         }
       } catch { /* wallet may not support reward addresses */ }
 
-      // Register with backend to get auth token
+      // CIP-8 challenge-response: fetch a server nonce, sign it, prove key ownership
       const backendBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+      const nonceRes = await fetch(
+        `${backendBase}/memorymint/v1/auth/wallet-nonce?address=${encodeURIComponent(rawAddress.toLowerCase())}`
+      )
+      if (!nonceRes.ok) {
+        throw new Error('Failed to obtain login challenge. Please try again.')
+      }
+      const { nonce } = await nonceRes.json()
+
+      // signData takes the raw hex address + payload hex; returns { signature, key }
+      const sigResult = await walletApi.signData(rawAddress, nonce)
+
+      // Register with backend to get auth token
       const authRes = await fetch(`${backendBase}/memorymint/v1/auth/wallet-connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           wallet_address: bech32Address,
+          raw_address: rawAddress.toLowerCase(),
+          signature: sigResult.signature,
+          key: sigResult.key,
           stake_address: stakeAddress,
           wallet_name: walletKey,
         }),

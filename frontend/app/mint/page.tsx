@@ -71,6 +71,26 @@ const ACCEPTED_FORMATS = {
   audio: ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/x-m4a', 'audio/aac', 'audio/ogg', 'audio/flac', 'audio/x-flac'],
 }
 
+function computeBatchTotals(
+  files: UploadedFile[],
+  info: PriceInfo,
+): { typeCounts: Record<string, number>; totalUsd: number; totalAda: number } {
+  const typeCounts = files.reduce((acc, f) => {
+    acc[f.type] = (acc[f.type] || 0) + 1; return acc
+  }, {} as Record<string, number>)
+  const totalUsd = files.reduce((sum, f) => {
+    const feeInfo = info.fees_by_type?.[f.type]
+    const isBatch = (typeCounts[f.type] || 0) >= 5
+    return sum + (feeInfo ? (isBatch ? feeInfo.batch_per_usd : feeInfo.usd) : info.service_fee_usd)
+  }, 0)
+  const totalAda = files.reduce((sum, f) => {
+    const feeInfo = info.fees_by_type?.[f.type]
+    const isBatch = (typeCounts[f.type] || 0) >= 5
+    return sum + (feeInfo ? (isBatch ? (feeInfo.batch_per_ada ?? feeInfo.ada ?? 0) : (feeInfo.ada ?? 0)) : (info.service_fee_ada ?? 0))
+  }, 0)
+  return { typeCounts, totalUsd, totalAda }
+}
+
 export default function MintPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -105,6 +125,7 @@ export default function MintPage() {
   const [mintError, setMintError] = useState('')
   const [mintResults, setMintResults] = useState<{ txHash: string; explorerUrl: string; title: string; status: 'confirmed' | 'pending' }[]>([])
   const [failedKeepsakeIds, setFailedKeepsakeIds] = useState<number[]>([])
+  const [midnightQueued, setMidnightQueued] = useState(false)
 
   // Live price state
   const [priceInfo, setPriceInfo] = useState<PriceInfo | null>(null)
@@ -654,7 +675,7 @@ export default function MintPage() {
     maxAttempts = 24,
   ): Promise<{ status: 'confirmed' | 'failed' | 'timeout'; explorerUrl?: string }> => {
     for (let i = 1; i <= maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 5000))
+      await new Promise((r) => setTimeout(r, i === 1 ? 2000 : 5000))
       onProgress(i)
       try {
         const res = await fetch(`${apiBase}/memorymint/v1/mint/status/${txHash}`)
@@ -709,18 +730,7 @@ export default function MintPage() {
       try {
         const walletApi = await connectWallet(mmWalletKey)
         const balanceAda = parseFloat(await getWalletBalance(walletApi))
-        // Compute total service fee using batch rates where applicable
-        const typeCounts = uploadedFiles.reduce((acc, f) => {
-          acc[f.type] = (acc[f.type] || 0) + 1; return acc
-        }, {} as Record<string, number>)
-        const totalFeeAda = uploadedFiles.reduce((sum, f) => {
-          const isBatch = typeCounts[f.type] >= 5
-          const feeInfo = priceInfo.fees_by_type?.[f.type]
-          const fee = feeInfo
-            ? (isBatch ? (feeInfo.batch_per_ada ?? feeInfo.ada ?? 0) : (feeInfo.ada ?? 0))
-            : (priceInfo.service_fee_ada ?? 0)
-          return sum + fee
-        }, 0)
+        const { totalAda: totalFeeAda } = computeBatchTotals(uploadedFiles, priceInfo)
         const requiredAda = totalFeeAda + 2.5
         if (balanceAda < requiredAda) {
           setBalanceWarning(
@@ -754,6 +764,7 @@ export default function MintPage() {
     setBalanceWarning('')
     setMintResults([])
     setFailedKeepsakeIds([])
+    setMidnightQueued(false)
 
     const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
     const authHeaders = { Authorization: `Bearer ${token}` }
@@ -767,6 +778,25 @@ export default function MintPage() {
       acc[f.type] = (acc[f.type] || 0) + 1; return acc
     }, {} as Record<string, number>)
 
+    // Connect wallet ONCE for all encrypt + sign operations — avoids N wallet reconnects
+    let walletApi: any = null
+    let addressHex = ''
+    if (mmWalletKey) {
+      try {
+        setMintStep('Connecting wallet...')
+        walletApi = await connectWallet(mmWalletKey)
+        addressHex = await walletApi.getChangeAddress()
+      } catch {
+        setMintError('Could not connect your wallet. Please refresh and try again.')
+        setIsMinting(false)
+        return
+      }
+    }
+
+    // Submissions collected during the loop — polled together in parallel after all files are processed
+    // so the entire batch shares one confirmation window instead of N sequential 2-min waits.
+    const pendingPolls: { txHash: string; explorerUrl: string; title: string }[] = []
+
     try {
       for (let i = 0; i < uploadedFiles.length; i++) {
         const uf = uploadedFiles[i]
@@ -777,12 +807,11 @@ export default function MintPage() {
         let originalContentHash: string | null = null
         let isEncrypted = false
 
-        if (privacy === 'private' && mmWalletKey) {
+        if (privacy === 'private' && walletApi) {
           setMintStep(`Encrypting file ${i + 1} of ${uploadedFiles.length}...`)
           try {
-            const walletApi = await connectWallet(mmWalletKey)
-            const addressHex: string = await walletApi.getChangeAddress()
             originalContentHash = await sha256File(uf.file)
+            // CEK is derived from a signature over the content hash — each file gets a unique CEK
             const sigHex = await signDataForKey(walletApi, addressHex, `memorymint:decrypt:v1:${originalContentHash}`)
             const cek = await deriveKeyFromSignature(sigHex)
             fileToUpload = await encryptFile(uf.file, cek)
@@ -848,20 +877,13 @@ export default function MintPage() {
 
         const unsignedTx: string = buildData.unsigned_tx
 
-        // Step 4: Sign and submit — branch on wallet type
+        // Step 4: Sign and submit — branch on wallet type (walletApi already connected above)
         setMintStep(`Minting memory ${i + 1} of ${uploadedFiles.length} to blockchain...`)
 
         let signData: any
 
-        if (mmWalletKey) {
-          // Browser wallet user — reconnect and sign with their wallet extension
-          let walletApi: any
-          try {
-            walletApi = await connectWallet(mmWalletKey)
-          } catch {
-            throw new Error('Could not reconnect your wallet. Please refresh and try again.')
-          }
-
+        if (walletApi) {
+          // Browser wallet user — sign with the already-connected walletApi
           let witnessHex: string
           try {
             // CIP-30: signTx(txHex, partialSign=true) returns the witness set only
@@ -894,28 +916,59 @@ export default function MintPage() {
           }
         }
 
-        // Poll for on-chain confirmation (up to 2 minutes)
-        setMintStep(`Confirming on blockchain...`)
-        const pollResult = await pollTxStatus(
-          apiBase,
-          signData.tx_hash,
-          (attempt) => setMintStep(`Confirming on blockchain... (${attempt}/24)`),
+        // Collect for parallel polling — don't block the loop waiting for each tx individually
+        pendingPolls.push({
+          txHash:      signData.tx_hash,
+          explorerUrl: signData.explorer_url,
+          title:       fileTitle,
+        })
+      }
+
+      // Poll all submitted transactions in parallel — the whole batch shares one confirmation window
+      if (pendingPolls.length > 0) {
+        const label = pendingPolls.length > 1 ? `${pendingPolls.length} mints` : 'mint'
+        setMintStep(`Confirming ${label} on blockchain...`)
+
+        const pollResults = await Promise.all(
+          pendingPolls.map(({ txHash }, idx) =>
+            pollTxStatus(apiBase, txHash, (attempt) => {
+              if (idx === 0) setMintStep(`Confirming ${label} on blockchain... (${attempt}/24)`)
+            }, 24)
+          )
         )
 
-        if (pollResult.status === 'failed') {
-          throw new Error('Transaction was rejected by the blockchain. Please try again.')
+        for (let i = 0; i < pendingPolls.length; i++) {
+          const { txHash, explorerUrl, title: fileTitle } = pendingPolls[i]
+          const poll = pollResults[i]
+          if (poll.status === 'failed') {
+            throw new Error(`Transaction for "${fileTitle}" was rejected by the blockchain. Please try again.`)
+          }
+          results.push({
+            txHash,
+            explorerUrl: poll.explorerUrl || explorerUrl,
+            title:       fileTitle,
+            status:      poll.status === 'confirmed' ? 'confirmed' : 'pending',
+          })
         }
-
-        results.push({
-          txHash: signData.tx_hash,
-          explorerUrl: pollResult.explorerUrl || signData.explorer_url,
-          title: fileTitle,
-          status: pollResult.status === 'confirmed' ? 'confirmed' : 'pending',
-        })
       }
 
       setMintResults(results)
       setMintStep('')
+
+      // Queue Midnight registration for private keepsakes (fire-and-don't-wait — 202 async on backend)
+      if (privacy === 'private' && mintedKeepsakeIds.length > 0) {
+        setMintStep('Queuing Midnight privacy registration…')
+        await Promise.allSettled(
+          mintedKeepsakeIds.map((id) =>
+            fetch(`${apiBase}/memorymint/v1/mint/midnight/${id}`, {
+              method:  'POST',
+              headers: authHeaders,
+            }).catch(() => {})
+          )
+        )
+        setMidnightQueued(true)
+        setMintStep('')
+      }
 
       // Assign successfully minted keepsakes to the selected album
       if (selectedAlbumId !== null && mintedKeepsakeIds.length > 0) {
@@ -1547,26 +1600,8 @@ export default function MintPage() {
               </div>
             ) : priceInfo ? (
               (() => {
-                const typeCounts = uploadedFiles.reduce((acc, f) => {
-                  acc[f.type] = (acc[f.type] || 0) + 1; return acc
-                }, {} as Record<string, number>)
+                const { typeCounts, totalUsd, totalAda } = computeBatchTotals(uploadedFiles, priceInfo)
                 const isBatchOf5 = uploadedFiles.length === 5 && Object.keys(typeCounts).length === 1
-                const totalUsd = uploadedFiles.reduce((sum, f) => {
-                  const feeInfo = priceInfo.fees_by_type?.[f.type]
-                  const isBatch = (typeCounts[f.type] || 0) >= 5
-                  const fee = feeInfo
-                    ? (isBatch ? feeInfo.batch_per_usd : feeInfo.usd)
-                    : priceInfo.service_fee_usd
-                  return sum + fee
-                }, 0)
-                const totalAda = uploadedFiles.reduce((sum, f) => {
-                  const feeInfo = priceInfo.fees_by_type?.[f.type]
-                  const isBatch = (typeCounts[f.type] || 0) >= 5
-                  const fee = feeInfo
-                    ? (isBatch ? (feeInfo.batch_per_ada ?? feeInfo.ada ?? 0) : (feeInfo.ada ?? 0))
-                    : (priceInfo.service_fee_ada ?? 0)
-                  return sum + fee
-                }, 0)
                 const hasAda = totalAda > 0
                 return (
                   <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl px-8 py-4">
@@ -1679,6 +1714,17 @@ export default function MintPage() {
                   }
                 </div>
               ))}
+            </div>
+          )}
+
+          {midnightQueued && (
+            <div className="mb-4 bg-purple-50 border-2 border-purple-200 rounded-2xl px-6 py-4 text-center">
+              <p className="text-purple-900 font-semibold text-sm">🌙 Midnight privacy registration queued</p>
+              <p className="text-purple-700 text-sm mt-1">
+                Your keepsake{mintResults.length > 1 ? 's are' : ' is'} being registered on the Midnight network.
+                This may take up to 15 minutes — check your{' '}
+                <a href="/gallery" className="underline hover:text-purple-900">gallery</a> for the updated status.
+              </p>
             </div>
           )}
 
@@ -1868,19 +1914,7 @@ export default function MintPage() {
 
               {/* Fee summary */}
               {priceInfo && (() => {
-                const typeCounts = uploadedFiles.reduce((acc, f) => {
-                  acc[f.type] = (acc[f.type] || 0) + 1; return acc
-                }, {} as Record<string, number>)
-                const totalUsd = uploadedFiles.reduce((sum, f) => {
-                  const feeInfo = priceInfo.fees_by_type?.[f.type]
-                  const isBatch = (typeCounts[f.type] || 0) >= 5
-                  return sum + (feeInfo ? (isBatch ? feeInfo.batch_per_usd : feeInfo.usd) : priceInfo.service_fee_usd)
-                }, 0)
-                const totalAda = uploadedFiles.reduce((sum, f) => {
-                  const feeInfo = priceInfo.fees_by_type?.[f.type]
-                  const isBatch = (typeCounts[f.type] || 0) >= 5
-                  return sum + (feeInfo ? (isBatch ? (feeInfo.batch_per_ada ?? feeInfo.ada ?? 0) : (feeInfo.ada ?? 0)) : (priceInfo.service_fee_ada ?? 0))
-                }, 0)
+                const { totalUsd, totalAda } = computeBatchTotals(uploadedFiles, priceInfo)
                 return (
                   <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-6 flex items-center justify-between text-sm">
                     <span className="text-amber-700">Service fee</span>

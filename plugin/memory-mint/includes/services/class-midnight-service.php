@@ -138,7 +138,10 @@ class MidnightService {
 
     /**
      * Call POST /api/v1/midnight/:addr/transfer on the sidecar.
-     * Requires both the current owner mnemonic and the new owner mnemonic.
+     *
+     * The new owner's mnemonic is never transmitted. Instead, the 32-byte Midnight
+     * secret key is derived here (BIP-39 seed → HMAC-SHA256) and sent as hex.
+     * The sidecar computes the on-chain commitment from that sk.
      *
      * Returns: ['success' => bool, 'tx_hash' => string, 'error' => string]
      */
@@ -151,11 +154,13 @@ class MidnightService {
             return ['success' => false, 'error' => 'Midnight sidecar not configured.'];
         }
 
+        $new_owner_sk = self::derive_midnight_sk($new_owner_mnemonic);
+
         $response = wp_remote_post(
             $this->sidecar_url . '/api/v1/midnight/' . rawurlencode($contract_address) . '/transfer',
             [
                 'headers' => ['Content-Type' => 'application/json', 'x-api-secret' => $this->api_secret],
-                'body'    => json_encode(['userMnemonic' => $user_mnemonic, 'newOwnerMnemonic' => $new_owner_mnemonic]),
+                'body'    => json_encode(['userMnemonic' => $user_mnemonic, 'newOwnerSecretKey' => $new_owner_sk]),
                 'timeout' => 300,
             ]
         );
@@ -231,6 +236,19 @@ class MidnightService {
             return self::ZERO_BYTES32;
         }
         return hash('sha256', $geo);
+    }
+
+    /**
+     * Derive the 32-byte Midnight secret key from a BIP-39 mnemonic.
+     * Mirrors deriveUserSecretKey() in provider.ts:
+     *   seed = PBKDF2-SHA512(password=mnemonic, salt='mnemonic', iter=2048, len=64)
+     *   sk   = HMAC-SHA256(key='memorymint:midnight:sk:v1', data=seed)
+     * Returns 64-char lowercase hex.
+     */
+    private static function derive_midnight_sk(string $mnemonic): string {
+        $seed = hash_pbkdf2('sha512', $mnemonic, 'mnemonic', 2048, 64, true);
+        $sk   = hash_hmac('sha256', $seed, 'memorymint:midnight:sk:v1', true);
+        return bin2hex($sk);
     }
 
     private function is_hex32(string $v): bool {

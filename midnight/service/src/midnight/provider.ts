@@ -10,7 +10,6 @@ import * as compactRuntime from '@midnight-ntwrk/compact-runtime';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { inMemoryPrivateStateProvider, type InMemoryPrivateStateProvider } from './inMemoryPrivateStateProvider.js';
 import { type MidnightProvider, type WalletProvider } from '@midnight-ntwrk/midnight-js/types';
 import { WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
 import { DustWallet } from '@midnight-ntwrk/wallet-sdk-dust-wallet';
@@ -32,6 +31,7 @@ import { WebSocket } from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { MIDNIGHT, WALLET } from '../config.js';
+import { logger } from '../lib/logger.js';
 
 // Required for GraphQL subscriptions to work in Node.js
 // @ts-expect-error WebSocket polyfill
@@ -57,15 +57,14 @@ export interface MemoryPrivateState {
 }
 
 export interface BuiltProviders {
-  wallet:                WalletFacade;
-  walletProvider:        WalletProvider & MidnightProvider;
-  unshieldedKeystore:    UnshieldedKeystore;
-  shieldedSecretKeys:    ledger.ZswapSecretKeys;
-  dustSecretKey:         ledger.DustSecretKey;
-  privateStateProvider:  InMemoryPrivateStateProvider;
-  publicDataProvider:    ReturnType<typeof indexerPublicDataProvider>;
-  zkConfigProvider:      NodeZkConfigProvider<string>;
-  proofProvider:         ReturnType<typeof httpClientProofProvider>;
+  wallet:              WalletFacade;
+  walletProvider:      WalletProvider & MidnightProvider;
+  unshieldedKeystore:  UnshieldedKeystore;
+  shieldedSecretKeys:  ledger.ZswapSecretKeys;
+  dustSecretKey:       ledger.DustSecretKey;
+  publicDataProvider:  ReturnType<typeof indexerPublicDataProvider>;
+  zkConfigProvider:    NodeZkConfigProvider<string>;
+  proofProvider:       ReturnType<typeof httpClientProofProvider>;
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
@@ -136,7 +135,7 @@ async function buildProviders(): Promise<BuiltProviders> {
   await wallet.start(shieldedSecretKeys, dustSecretKey);
 
   // Wait for sync
-  console.log('[midnight-provider] Syncing wallet with network...');
+  logger.info('Syncing wallet with network...');
 
   // Show sync progress while waiting — tap into state stream in parallel
   const syncDone$ = new Rx.Subject<void>();
@@ -160,9 +159,7 @@ async function buildProviders(): Promise<BuiltProviders> {
     const dustPct       = dp ? pct(dp.appliedIndex, dp.highestIndex) : '?';
     const connected     = sp?.isConnected ? 'connected' : 'connecting...';
 
-    console.log(
-      `[sync] ${connected} | shielded ${shieldedPct} | unshielded ${unshieldedPct} | dust ${dustPct}`
-    );
+    logger.info({ connected, shielded: shieldedPct, unshielded: unshieldedPct, dust: dustPct }, 'sync progress');
   });
 
   // Wait for isSynced. Shielded/dust show highestIndex=0 when the relay node rate-limits
@@ -183,9 +180,7 @@ async function buildProviders(): Promise<BuiltProviders> {
         const dustIndex = Number(dp?.appliedIndex ?? 0);
 
         waitedMs += POLL_MS;
-        console.log(
-          `[midnight-provider] Waiting for dust wallet... (${Math.round(waitedMs / 1000)}s elapsed, connected=${dustConnected}, dustIndex=${dustIndex})`
-        );
+        logger.info({ elapsedSec: Math.round(waitedMs / 1000), dustConnected, dustIndex }, 'Waiting for dust wallet...');
 
         if (waitedMs >= MAX_WAIT_MS) {
           reject(new Error('Wallet sync timeout after 15 minutes — check relay connectivity'));
@@ -203,7 +198,7 @@ async function buildProviders(): Promise<BuiltProviders> {
   });
 
   syncDone$.next();
-  console.log('[midnight-provider] Wallet synced');
+  logger.info('Wallet synced');
 
   // Build walletProvider + midnightProvider (same object, two interfaces)
   const walletProvider = await buildWalletProvider(wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore);
@@ -217,7 +212,6 @@ async function buildProviders(): Promise<BuiltProviders> {
     unshieldedKeystore,
     shieldedSecretKeys,
     dustSecretKey,
-    privateStateProvider: inMemoryPrivateStateProvider(),
     publicDataProvider:  indexerPublicDataProvider(MIDNIGHT.indexer, MIDNIGHT.indexerWS),
     zkConfigProvider,
     proofProvider: httpClientProofProvider(MIDNIGHT.proofServer, zkConfigProvider),
@@ -286,7 +280,15 @@ const OWNER_PREFIX = new Uint8Array([
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]); // "memorymint:owner:" padded to 32 bytes
 
-export function computeOwnerCommitment(mnemonic: string): Uint8Array {
-  const sk = deriveUserSecretKey(mnemonic);
+/**
+ * Computes the on-chain owner commitment from a derived secret key.
+ * Accepts a 32-byte sk so callers can derive it externally (e.g. PHP) and
+ * pass only the sk — the raw mnemonic never needs to reach the sidecar.
+ */
+export function commitmentFromSecretKey(sk: Uint8Array): Uint8Array {
   return compactRuntime.persistentHash(_descriptor_ownerVec, [OWNER_PREFIX, sk]) as Uint8Array;
+}
+
+export function computeOwnerCommitment(mnemonic: string): Uint8Array {
+  return commitmentFromSecretKey(deriveUserSecretKey(mnemonic));
 }

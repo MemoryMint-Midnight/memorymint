@@ -21,6 +21,7 @@ import {
 import { filePrivateStateProvider } from './filePrivateStateProvider.js';
 import { TxTimeoutError, classifyError } from './errors.js';
 import { SERVICE } from '../config.js';
+import { logger } from '../lib/logger.js';
 
 // ── Lazy-load generated contract via ESM import() to share the module cache ──
 // IMPORTANT: Do NOT use createRequire/require() here — tsx's CJS hook transforms
@@ -140,21 +141,27 @@ async function _deployMemoryToken(input: MintMemoryInput): Promise<string> {
   );
 
   const contractAddress = deployed.deployTxData.public.contractAddress;
-  console.log('[contract] deployContract OK, address:', contractAddress);
+  logger.info({ contractAddress }, 'deployContract OK');
 
   // The RPC WebSocket can time out during the ~2-4 min proof generation.
   // Re-sync the wallet before calling mintMemory to ensure the connection is live.
-  console.log('[contract] Re-syncing wallet before mintMemory...');
-  await Rx.firstValueFrom(
-    providers.wallet.state().pipe(
-      Rx.filter((s: any) => s.isSynced),
+  // Independent 2-min timeout so a stall here surfaces quickly rather than
+  // consuming the remaining deploy timeout budget.
+  logger.info('Re-syncing wallet before mintMemory...');
+  await withTimeout(
+    Rx.firstValueFrom(
+      providers.wallet.state().pipe(
+        Rx.filter((s: any) => s.isSynced),
+      ),
     ),
+    2 * 60 * 1000,
+    're-sync after deploy',
   );
-  console.log('[contract] Wallet synced, calling mintMemory...');
+  logger.info('Wallet synced, calling mintMemory...');
 
   // deployContract only puts the bytecode on-chain — call mintMemory to initialise ledger state
   await (deployed.callTx as any).mintMemory();
-  console.log('[contract] mintMemory OK');
+  logger.info('mintMemory OK');
 
   return contractAddress;
 }

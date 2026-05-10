@@ -96,6 +96,20 @@ $refresh_url = wp_nonce_url(
                     <p class="description">A friendly name for this wallet.</p>
                 </td>
             </tr>
+            <?php if ($network === 'mainnet'): ?>
+            <tr>
+                <th><label for="before_slot">Before Slot (Time-Lock)</label></th>
+                <td>
+                    <input type="number" name="before_slot" id="before_slot" value="" class="regular-text" min="1" placeholder="e.g. 350000000" />
+                    <p class="description">
+                        <strong>Recommended for mainnet.</strong> Enter a future Cardano slot number — no NFTs can be minted after that slot.
+                        Leave blank to generate without a time-lock (not recommended — unlimited minting if the key is compromised).
+                        Current mainnet slot ≈ <code><?php echo esc_html((string) (time() - 1591566291)); ?></code>.
+                        A slot ~5 years out ≈ <code><?php echo esc_html((string) (time() - 1591566291 + 157680000)); ?></code>.
+                    </p>
+                </td>
+            </tr>
+            <?php endif; ?>
         </table>
         <?php submit_button('Generate New Wallet', 'primary', 'submit', true, [
             'onclick' => "return confirm('This will deactivate the current wallet and generate a new one. Continue?');"
@@ -105,6 +119,20 @@ $refresh_url = wp_nonce_url(
     <hr />
 
     <h2>Existing Wallets (<?php echo esc_html(ucfirst($network)); ?>)</h2>
+
+    <?php if ($network === 'mainnet' && $active_wallet):
+        $policy_data  = json_decode($active_wallet->policy_json ?? '{}', true);
+        $has_timelock = isset($policy_data['type']) && $policy_data['type'] === 'all';
+        if (!$has_timelock):
+    ?>
+        <div class="notice notice-warning" style="margin:12px 0;">
+            <p>
+                <strong>No time-lock on mainnet policy.</strong>
+                The active mainnet policy wallet has no expiry slot — anyone who compromises the signing key can mint indefinitely.
+                Regenerate the policy wallet with a <em>Before Slot</em> time-lock before mainnet launch.
+            </p>
+        </div>
+    <?php endif; endif; ?>
 
     <?php if ($wallet_balance !== null && $wallet_balance < 5): ?>
         <div class="notice notice-error" style="margin:12px 0;">

@@ -1,6 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
+import { Mutex } from 'async-mutex';
+import { logger } from '../lib/logger.js';
 import type {
   ImportPrivateStatesResult,
   ImportSigningKeysResult,
@@ -8,6 +10,10 @@ import type {
   PrivateStateExport,
   SigningKeyExport,
 } from './inMemoryPrivateStateProvider.js';
+
+// One mutex per process — sufficient because the sidecar is a single instance.
+// Guards the read-compute-write cycle so concurrent async calls can't interleave.
+const _storeMutex = new Mutex();
 
 // ── Serialization ─────────────────────────────────────────────────────────────
 // Custom replacer/reviver handles bigint and Uint8Array anywhere in the state graph.
@@ -33,6 +39,14 @@ function deserialize(json: string): unknown {
 function deriveKey(secret: string): Buffer {
   return createHash('sha256')
     .update('memorymint:private-state:aes-key:v1')
+    .update(secret)
+    .digest();
+}
+
+function deriveExportKey(secret: string, salt: string): Buffer {
+  return createHash('sha256')
+    .update('memorymint:private-state:export-key:v1')
+    .update(salt)
     .update(secret)
     .digest();
 }
@@ -66,7 +80,7 @@ function loadStore(path: string): FileStore {
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as FileStore;
   } catch {
-    console.warn('[file-state] Corrupt state file — starting fresh');
+    logger.warn('Corrupt state file — starting fresh');
     return { states: {}, signingKeys: {} };
   }
 }
@@ -98,10 +112,12 @@ export function filePrivateStateProvider<PSI extends string = string, PS = unkno
     },
 
     async set(id: PSI, state: PS): Promise<void> {
-      const store = loadStore(filePath);
-      if (!store.states[currentAddress]) store.states[currentAddress] = {};
-      store.states[currentAddress][id as string] = encrypt(serialize(state), key);
-      saveStore(filePath, store);
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        if (!store.states[currentAddress]) store.states[currentAddress] = {};
+        store.states[currentAddress][id as string] = encrypt(serialize(state), key);
+        saveStore(filePath, store);
+      });
     },
 
     async get(id: PSI): Promise<PS | null> {
@@ -111,27 +127,33 @@ export function filePrivateStateProvider<PSI extends string = string, PS = unkno
       try {
         return deserialize(decrypt(enc, key)) as PS;
       } catch {
-        console.warn(`[file-state] Decrypt failed for ${currentAddress}/${String(id)}`);
+        logger.warn({ address: currentAddress, id: String(id) }, 'Decrypt failed');
         return null;
       }
     },
 
     async remove(id: PSI): Promise<void> {
-      const store = loadStore(filePath);
-      delete store.states[currentAddress]?.[id as string];
-      saveStore(filePath, store);
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        delete store.states[currentAddress]?.[id as string];
+        saveStore(filePath, store);
+      });
     },
 
     async clear(): Promise<void> {
-      const store = loadStore(filePath);
-      delete store.states[currentAddress];
-      saveStore(filePath, store);
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        delete store.states[currentAddress];
+        saveStore(filePath, store);
+      });
     },
 
     async setSigningKey(address: string, signingKey: unknown): Promise<void> {
-      const store = loadStore(filePath);
-      store.signingKeys[address] = encrypt(serialize(signingKey), key);
-      saveStore(filePath, store);
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        store.signingKeys[address] = encrypt(serialize(signingKey), key);
+        saveStore(filePath, store);
+      });
     },
 
     async getSigningKey(address: string): Promise<unknown | null> {
@@ -146,29 +168,96 @@ export function filePrivateStateProvider<PSI extends string = string, PS = unkno
     },
 
     async removeSigningKey(address: string): Promise<void> {
-      const store = loadStore(filePath);
-      delete store.signingKeys[address];
-      saveStore(filePath, store);
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        delete store.signingKeys[address];
+        saveStore(filePath, store);
+      });
     },
 
     async clearSigningKeys(): Promise<void> {
-      const store      = loadStore(filePath);
-      store.signingKeys = {};
-      saveStore(filePath, store);
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        store.signingKeys = {};
+        saveStore(filePath, store);
+      });
     },
 
-    // export/import — state is already on disk; stubs satisfy the interface
-    async exportPrivateStates(): Promise<PrivateStateExport> {
-      return { format: 'midnight-private-state-export', encryptedPayload: '', salt: '' };
+    // ── M8: export / import ────────────────────────────────────────────────────
+    // Serialises the on-disk store into a portable encrypted blob.
+    // The same apiSecret used for at-rest encryption is used here; a per-export
+    // salt ensures the export key is distinct from the storage key even for the
+    // same secret.
+
+    async exportPrivateStates(_options?: { password?: string; maxStates?: number }): Promise<PrivateStateExport> {
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        const salt  = randomBytes(16).toString('hex');
+        const exportKey = deriveExportKey(apiSecret, salt);
+        const encryptedPayload = encrypt(JSON.stringify(store.states), exportKey);
+        return { format: 'midnight-private-state-export', encryptedPayload, salt };
+      });
     },
-    async importPrivateStates(): Promise<ImportPrivateStatesResult> {
-      return { imported: 0, skipped: 0 };
+
+    async importPrivateStates(
+      exportData: PrivateStateExport,
+      options?: { password?: string; conflictStrategy?: 'skip' | 'overwrite' | 'error'; maxStates?: number },
+    ): Promise<ImportPrivateStatesResult> {
+      return _storeMutex.runExclusive(() => {
+        const exportKey    = deriveExportKey(apiSecret, exportData.salt);
+        const imported_states: FileStore['states'] = JSON.parse(decrypt(exportData.encryptedPayload, exportKey));
+        const store        = loadStore(filePath);
+        const strategy     = options?.conflictStrategy ?? 'skip';
+        let imported = 0;
+        let skipped  = 0;
+
+        for (const [addr, stateMap] of Object.entries(imported_states)) {
+          for (const [stateId, enc] of Object.entries(stateMap)) {
+            const exists = !!(store.states[addr]?.[stateId]);
+            if (exists && strategy === 'skip')  { skipped++;  continue; }
+            if (exists && strategy === 'error') { throw new Error(`Conflict: ${addr}/${stateId}`); }
+            if (!store.states[addr]) store.states[addr] = {};
+            store.states[addr][stateId] = enc;
+            imported++;
+          }
+        }
+        saveStore(filePath, store);
+        return { imported, skipped };
+      });
     },
-    async exportSigningKeys(): Promise<SigningKeyExport> {
-      return { format: 'midnight-signing-key-export', encryptedPayload: '', salt: '' };
+
+    async exportSigningKeys(_options?: { password?: string }): Promise<SigningKeyExport> {
+      return _storeMutex.runExclusive(() => {
+        const store = loadStore(filePath);
+        const salt  = randomBytes(16).toString('hex');
+        const exportKey = deriveExportKey(apiSecret, salt);
+        const encryptedPayload = encrypt(JSON.stringify(store.signingKeys), exportKey);
+        return { format: 'midnight-signing-key-export', encryptedPayload, salt };
+      });
     },
-    async importSigningKeys(): Promise<ImportSigningKeysResult> {
-      return { imported: 0, skipped: 0 };
+
+    async importSigningKeys(
+      exportData: SigningKeyExport,
+      options?: { password?: string; conflictStrategy?: 'skip' | 'overwrite' | 'error' },
+    ): Promise<ImportSigningKeysResult> {
+      return _storeMutex.runExclusive(() => {
+        const exportKey    = deriveExportKey(apiSecret, exportData.salt);
+        const imported_keys: FileStore['signingKeys'] = JSON.parse(decrypt(exportData.encryptedPayload, exportKey));
+        const store        = loadStore(filePath);
+        const strategy     = options?.conflictStrategy ?? 'skip';
+        let imported = 0;
+        let skipped  = 0;
+
+        for (const [addr, enc] of Object.entries(imported_keys)) {
+          const exists = addr in store.signingKeys;
+          if (exists && strategy === 'skip')  { skipped++;  continue; }
+          if (exists && strategy === 'error') { throw new Error(`Conflict: signing key ${addr}`); }
+          store.signingKeys[addr] = enc;
+          imported++;
+        }
+        saveStore(filePath, store);
+        return { imported, skipped };
+      });
     },
   };
 }

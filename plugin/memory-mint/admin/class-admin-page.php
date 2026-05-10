@@ -68,6 +68,16 @@ class AdminPage {
             echo '</p></div>';
         }
 
+        // CIP-25 → CIP-68 migration reminder (mainnet only)
+        if ($network === 'mainnet') {
+            echo '<div class="notice notice-info"><p>';
+            echo '<strong>Memory Mint — Mainnet pre-launch reminder:</strong> NFTs are currently minted using '
+               . '<strong>CIP-25 (label 721)</strong>. Before mainnet launch, migrate the minting flow to '
+               . '<strong>CIP-68</strong> for better wallet composability and on-chain metadata. '
+               . 'See the audit finding L4 in the project README.';
+            echo '</p></div>';
+        }
+
         // Low balance warning — only when a wallet and API key exist
         if ($active_wallets > 0 && !empty($api_key)) {
             global $wpdb;
@@ -296,8 +306,9 @@ class AdminPage {
 
         check_admin_referer('memorymint_generate_wallet');
 
-        $network = \MemoryMint\MemoryMint::get_network();
+        $network     = \MemoryMint\MemoryMint::get_network();
         $wallet_name = sanitize_text_field($_POST['wallet_name'] ?? 'Policy Wallet');
+        $before_slot = isset($_POST['before_slot']) ? intval($_POST['before_slot']) : 0;
 
         $result = \CardanoWalletPHP::generateWallet($network);
 
@@ -308,16 +319,32 @@ class AdminPage {
 
         // Encrypt sensitive data
         $mnemonic_encrypted = \MemoryMint\Helpers\Encryption::encrypt($result['mnemonic']);
-        $skey_encrypted = \MemoryMint\Helpers\Encryption::encrypt($result['payment_skey_extended']);
+        $skey_encrypted     = \MemoryMint\Helpers\Encryption::encrypt($result['payment_skey_extended']);
 
-        // Build CIP-25 native script and derive its policy ID.
-        // Script: {"type":"sig","keyHash":"<payment_keyhash>"}
-        // CBOR of [0, bstr(keyhash_bytes)] = 0x82 0x00 0x58 0x1c <28 bytes>
+        // Build native script and derive its policy ID via blake2b-224 of the CBOR encoding.
         $payment_keyhash = $result['payment_keyhash'];
-        $policy_json     = json_encode(['type' => 'sig', 'keyHash' => $payment_keyhash]);
         $keyhash_bytes   = hex2bin($payment_keyhash);
-        $cbor_script     = "\x82\x00\x58\x1c" . $keyhash_bytes; // array(2), uint(0), bytes(28)
-        $policy_id       = bin2hex(sodium_crypto_generichash($cbor_script, '', 28)); // blake2b-224
+        $sig_cbor        = "\x82\x00\x58\x1c" . $keyhash_bytes; // [0, h'keyhash'] (28 bytes)
+
+        if ($before_slot > 0 && $network === 'mainnet') {
+            // Time-locked script: {"type":"all","scripts":[{"type":"sig","keyHash":"..."},{"type":"before","slot":N}]}
+            // CBOR: [1, [[0, h'keyhash'], [5, N]]]
+            $before_cbor = "\x82\x05" . self::cbor_uint($before_slot); // [5, N]
+            $cbor_script = "\x82\x01\x82" . $sig_cbor . $before_cbor;  // [1, [sig, before]]
+            $policy_json = json_encode([
+                'type'    => 'all',
+                'scripts' => [
+                    ['type' => 'sig',    'keyHash' => $payment_keyhash],
+                    ['type' => 'before', 'slot'    => $before_slot],
+                ],
+            ]);
+        } else {
+            // Simple sig-only script (preprod or mainnet without time-lock)
+            $cbor_script = $sig_cbor;
+            $policy_json = json_encode(['type' => 'sig', 'keyHash' => $payment_keyhash]);
+        }
+
+        $policy_id = bin2hex(sodium_crypto_generichash($cbor_script, '', 28)); // blake2b-224
 
         // Store in database
         global $wpdb;
@@ -344,6 +371,19 @@ class AdminPage {
 
         wp_redirect(admin_url('admin.php?page=memory-mint-wallet&generated=1'));
         exit;
+    }
+
+    /**
+     * Encode a non-negative integer as a CBOR unsigned integer (major type 0).
+     * Used when building time-locked native script CBOR for mainnet policy wallets.
+     */
+    private static function cbor_uint(int $n): string {
+        if ($n < 0)             return '';               // guard — should never happen
+        if ($n < 24)            return chr($n);
+        if ($n < 0x100)         return "\x18" . chr($n);
+        if ($n < 0x10000)       return "\x19" . pack('n', $n);
+        if ($n < 0x100000000)   return "\x1a" . pack('N', $n);
+        return "\x1b" . pack('J', $n);
     }
 
     public function handle_test_anvil() {

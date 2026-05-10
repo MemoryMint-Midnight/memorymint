@@ -16,11 +16,12 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { callCircuit } from '../midnight/contract.js';
+import { mnemonicSchema } from '../lib/schemas.js';
 
 export const revokeRouter = Router({ mergeParams: true });
 
 const RevokeBody = z.object({
-  userMnemonic: z.string().regex(/^([a-z]+)( [a-z]+){11,23}$/, 'must be a 12- or 24-word BIP-39 mnemonic'),
+  userMnemonic: mnemonicSchema,
 });
 
 revokeRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {

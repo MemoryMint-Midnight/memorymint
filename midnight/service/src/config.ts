@@ -2,8 +2,8 @@ import 'dotenv/config';
 
 // ── Midnight network (preprod by default) ─────────────────────────────────────
 export const MIDNIGHT = {
-  indexer:     process.env.MIDNIGHT_INDEXER     ?? 'https://indexer.preprod.midnight.network/api/v3/graphql',
-  indexerWS:   process.env.MIDNIGHT_INDEXER_WS  ?? 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
+  indexer:     process.env.MIDNIGHT_INDEXER     ?? 'https://indexer.preprod.midnight.network/api/v4/graphql',
+  indexerWS:   process.env.MIDNIGHT_INDEXER_WS  ?? 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
   node:        process.env.MIDNIGHT_NODE         ?? 'https://rpc.preprod.midnight.network',
   proofServer: process.env.PROOF_SERVER_URL      ?? 'http://127.0.0.1:6300',
 } as const;

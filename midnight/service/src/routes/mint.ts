@@ -20,10 +20,20 @@
 
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { deployMemoryToken } from '../midnight/contract.js';
 
 export const mintRouter = Router();
+
+// Each mint takes 10-15 min — one request per 30s per IP is generous and safe.
+const mintRateLimiter = rateLimit({
+  windowMs:         30_000,
+  limit:            1,
+  standardHeaders:  'draft-7',
+  legacyHeaders:    false,
+  message:          { error: 'Too many mint requests. Each mint takes 10-15 minutes — please wait before retrying.' },
+});
 
 const hexBytes32 = z.string().regex(/^[0-9a-f]{64}$/, 'must be 32-byte hex');
 
@@ -36,7 +46,7 @@ const MintBody = z.object({
   cardanoAssetId: hexBytes32,
 });
 
-mintRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
+mintRouter.post('/', mintRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
   const parsed = MintBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid request body', details: parsed.error.flatten() });

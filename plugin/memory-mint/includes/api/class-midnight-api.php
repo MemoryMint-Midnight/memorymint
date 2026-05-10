@@ -3,6 +3,7 @@ namespace MemoryMint\Api;
 
 use MemoryMint\Helpers\Encryption;
 use MemoryMint\Services\MidnightService;
+use MemoryMint\Cron\MidnightJobs;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -41,11 +42,26 @@ class MidnightApi {
             'callback'            => [$this, 'revoke'],
             'permission_callback' => [$this, 'check_auth'],
         ]);
+
+        // Async status endpoints
+        register_rest_route(self::NAMESPACE, '/midnight/(?P<keepsake_id>\d+)/status', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_midnight_status'],
+            'permission_callback' => [$this, 'check_auth'],
+        ]);
+
+        register_rest_route(self::NAMESPACE, '/midnight/job/(?P<job_id>[0-9a-f]{24})', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_job_status'],
+            'permission_callback' => [$this, 'check_auth'],
+        ]);
     }
 
     /**
      * POST /memorymint/v1/midnight/{id}/prove
-     * Generate a ZK proof for a memory attribute without revealing the data.
+     *
+     * Queues a ZK-proof job and returns 202 immediately.
+     * Frontend polls GET /midnight/job/{job_id} for the result.
      */
     public function prove(\WP_REST_Request $request) {
         $user        = wp_get_current_user();
@@ -78,9 +94,14 @@ class MidnightApi {
             ], 503);
         }
 
-        $mnemonic = $this->get_user_mnemonic($user->ID);
-        if (is_wp_error($mnemonic)) {
-            return new \WP_REST_Response(['success' => false, 'error' => $mnemonic->get_error_message()], 400);
+        // Fail fast: verify mnemonic is available before queueing (avoids a job that
+        // is guaranteed to fail; we can return a useful error immediately).
+        $mnemonic_check = $this->get_user_mnemonic($user->ID);
+        if (is_wp_error($mnemonic_check)) {
+            return new \WP_REST_Response(['success' => false, 'error' => $mnemonic_check->get_error_message()], 400);
+        }
+        if (function_exists('sodium_memzero')) {
+            sodium_memzero($mnemonic_check);
         }
 
         $cutoff = null;
@@ -94,33 +115,27 @@ class MidnightApi {
             }
         }
 
-        @set_time_limit(360);
-
-        $result = $midnight->prove_memory($mnemonic, $keepsake->midnight_address, $proof_type, $cutoff);
-
-        if (function_exists('sodium_memzero')) {
-            sodium_memzero($mnemonic);
+        $args = [
+            'midnight_address' => $keepsake->midnight_address,
+            'proof_type'       => $proof_type,
+        ];
+        if ($cutoff !== null) {
+            $args['cutoff'] = $cutoff;
         }
 
-        if (!$result['success']) {
-            return new \WP_REST_Response(['success' => false, 'error' => $result['error']], 500);
-        }
+        $job_id = MidnightJobs::queue($user->ID, $keepsake_id, 'prove', $args);
 
         return new \WP_REST_Response([
             'success' => true,
-            'proof'   => [
-                'verified'   => true,
-                'proof_type' => $proof_type,
-                'tx_id'      => $result['tx_id'],
-                'proved_at'  => gmdate('c'),
-            ],
-        ], 200);
+            'queued'  => true,
+            'job_id'  => $job_id,
+        ], 202);
     }
 
     /**
      * POST /memorymint/v1/midnight/{id}/transfer
-     * Transfer Midnight private record to another MemoryMint account.
-     * Both sender and recipient must be custodial (email) accounts with active mnemonics.
+     *
+     * Queues a Midnight ownership transfer and returns 202 immediately.
      */
     public function transfer(\WP_REST_Request $request) {
         $user        = wp_get_current_user();
@@ -169,9 +184,13 @@ class MidnightApi {
             ], 404);
         }
 
-        $user_mnemonic = $this->get_user_mnemonic($user->ID);
-        if (is_wp_error($user_mnemonic)) {
-            return new \WP_REST_Response(['success' => false, 'error' => $user_mnemonic->get_error_message()], 400);
+        // Fail fast: verify both mnemonics are available before queueing.
+        $sender_mnemonic = $this->get_user_mnemonic($user->ID);
+        if (is_wp_error($sender_mnemonic)) {
+            return new \WP_REST_Response(['success' => false, 'error' => $sender_mnemonic->get_error_message()], 400);
+        }
+        if (function_exists('sodium_memzero')) {
+            sodium_memzero($sender_mnemonic);
         }
 
         $recipient_mnemonic = $this->get_user_mnemonic($recipient_user->ID);
@@ -182,36 +201,26 @@ class MidnightApi {
                            . 'They must be a custodial (email-based) MemoryMint account with an active seed phrase.',
             ], 400);
         }
-
-        @set_time_limit(360);
-
-        $result = $midnight->transfer_memory(
-            $user_mnemonic,
-            $recipient_mnemonic,
-            $keepsake->midnight_address
-        );
-
         if (function_exists('sodium_memzero')) {
-            sodium_memzero($user_mnemonic);
             sodium_memzero($recipient_mnemonic);
         }
 
-        if (!$result['success']) {
-            return new \WP_REST_Response(['success' => false, 'error' => $result['error']], 500);
-        }
+        $job_id = MidnightJobs::queue($user->ID, $keepsake_id, 'transfer', [
+            'midnight_address'   => $keepsake->midnight_address,
+            'recipient_user_id'  => $recipient_user->ID,
+        ]);
 
-        $wpdb->update(
-            $wpdb->prefix . 'memorymint_keepsakes',
-            ['user_id' => $recipient_user->ID],
-            ['id' => $keepsake_id]
-        );
-
-        return new \WP_REST_Response(['success' => true], 200);
+        return new \WP_REST_Response([
+            'success' => true,
+            'queued'  => true,
+            'job_id'  => $job_id,
+        ], 202);
     }
 
     /**
      * POST /memorymint/v1/midnight/{id}/revoke
-     * Permanently revoke the Midnight private record. Irreversible.
+     *
+     * Queues a Midnight record revocation and returns 202 immediately.
      */
     public function revoke(\WP_REST_Request $request) {
         $user        = wp_get_current_user();
@@ -243,30 +252,92 @@ class MidnightApi {
             ], 503);
         }
 
-        $mnemonic = $this->get_user_mnemonic($user->ID);
-        if (is_wp_error($mnemonic)) {
-            return new \WP_REST_Response(['success' => false, 'error' => $mnemonic->get_error_message()], 400);
+        $mnemonic_check = $this->get_user_mnemonic($user->ID);
+        if (is_wp_error($mnemonic_check)) {
+            return new \WP_REST_Response(['success' => false, 'error' => $mnemonic_check->get_error_message()], 400);
         }
-
-        @set_time_limit(360);
-
-        $result = $midnight->revoke_memory($mnemonic, $keepsake->midnight_address);
-
         if (function_exists('sodium_memzero')) {
-            sodium_memzero($mnemonic);
+            sodium_memzero($mnemonic_check);
         }
 
-        if (!$result['success']) {
-            return new \WP_REST_Response(['success' => false, 'error' => $result['error']], 500);
+        $job_id = MidnightJobs::queue($user->ID, $keepsake_id, 'revoke', [
+            'midnight_address' => $keepsake->midnight_address,
+        ]);
+
+        return new \WP_REST_Response([
+            'success' => true,
+            'queued'  => true,
+            'job_id'  => $job_id,
+        ], 202);
+    }
+
+    /**
+     * GET /memorymint/v1/midnight/{id}/status
+     *
+     * Returns midnight_status and midnight_address from the keepsake row.
+     * Used by the frontend to poll Midnight mint progress.
+     */
+    public function get_midnight_status(\WP_REST_Request $request) {
+        $user        = wp_get_current_user();
+        $keepsake_id = intval($request->get_param('keepsake_id'));
+
+        global $wpdb;
+        $keepsake = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, midnight_status, midnight_address FROM {$wpdb->prefix}memorymint_keepsakes WHERE id = %d AND user_id = %d",
+            $keepsake_id, $user->ID
+        ));
+
+        if (!$keepsake) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Keepsake not found.'], 404);
         }
 
-        $wpdb->update(
-            $wpdb->prefix . 'memorymint_keepsakes',
-            ['midnight_status' => 'revoked'],
-            ['id' => $keepsake_id]
-        );
+        return new \WP_REST_Response([
+            'success'          => true,
+            'midnight_status'  => $keepsake->midnight_status,
+            'midnight_address' => $keepsake->midnight_address ?: null,
+        ], 200);
+    }
 
-        return new \WP_REST_Response(['success' => true], 200);
+    /**
+     * GET /memorymint/v1/midnight/job/{job_id}
+     *
+     * Returns async job status. Only the job owner can poll.
+     * Frontend polls this after receiving 202 from prove/transfer/revoke/mint.
+     *
+     * Response shape:
+     *   { status: 'queued'|'running'|'done'|'failed', result?: {...}, error?: string }
+     */
+    public function get_job_status(\WP_REST_Request $request) {
+        $user   = wp_get_current_user();
+        $job_id = sanitize_text_field($request->get_param('job_id'));
+
+        $job = MidnightJobs::get($job_id);
+
+        if (!$job) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Job not found or expired.'], 404);
+        }
+
+        // Only the user who queued the job may poll its status.
+        if ((int) $job['user_id'] !== $user->ID) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Forbidden.'], 403);
+        }
+
+        $response = [
+            'success'    => true,
+            'job_id'     => $job_id,
+            'status'     => $job['status'],
+            'operation'  => $job['operation'],
+            'created_at' => $job['created_at'],
+            'updated_at' => $job['updated_at'],
+        ];
+
+        if ($job['status'] === 'done') {
+            $response['result'] = $job['result'];
+        } elseif ($job['status'] === 'failed') {
+            $response['error'] = $job['error'];
+        }
+
+        return new \WP_REST_Response($response, 200);
     }
 
     /**

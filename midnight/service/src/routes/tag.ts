@@ -16,11 +16,12 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { callCircuit } from '../midnight/contract.js';
+import { mnemonicSchema } from '../lib/schemas.js';
 
 export const tagRouter = Router({ mergeParams: true });
 
 const TagBody = z.object({
-  userMnemonic: z.string().min(1, 'userMnemonic is required'),
+  userMnemonic: mnemonicSchema,
 });
 
 tagRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {

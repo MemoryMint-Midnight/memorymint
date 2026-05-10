@@ -73,6 +73,7 @@ class AnvilService {
                     ],
                 ],
             ],
+            // TODO (L4): migrate to CIP-68 (label 100/222/333) before mainnet launch.
             'metadata' => [
                 721 => [
                     $policy_id => [

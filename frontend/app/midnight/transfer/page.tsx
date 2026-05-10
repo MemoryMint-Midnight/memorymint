@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useMidnightJob } from '@/lib/useMidnightJob'
 
 interface Keepsake {
   id: number
@@ -12,23 +13,27 @@ interface Keepsake {
   midnight_status: string
 }
 
+const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+
 function TransferPageInner() {
   const router = useRouter()
   const params = useSearchParams()
   const keepsakeId = params.get('id')
 
-  const [keepsake, setKeepsake] = useState<Keepsake | null>(null)
-  const [loadError, setLoadError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
+  const [keepsake, setKeepsake]           = useState<Keepsake | null>(null)
+  const [loadError, setLoadError]         = useState('')
+  const [isLoading, setIsLoading]         = useState(true)
 
-  const [recipient, setRecipient] = useState('')
-  const [confirmed, setConfirmed] = useState(false)
+  const [recipient, setRecipient]         = useState('')
+  const [confirmed, setConfirmed]         = useState(false)
   const [isTransferring, setIsTransferring] = useState(false)
   const [transferError, setTransferError] = useState('')
-  const [comingSoon, setComingSoon] = useState(false)
-  const [done, setDone] = useState(false)
+  const [comingSoon, setComingSoon]       = useState(false)
+  const [done, setDone]                   = useState(false)
 
-  const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+  // Async job polling
+  const [jobId, setJobId] = useState<string | null>(null)
+  const jobStatus = useMidnightJob(apiBase, jobId)
 
   useEffect(() => {
     const token = sessionStorage.getItem('mmToken')
@@ -45,7 +50,21 @@ function TransferPageInner() {
       })
       .catch(() => setLoadError('Network error. Please try again.'))
       .finally(() => setIsLoading(false))
-  }, [keepsakeId])
+  }, [keepsakeId, router])
+
+  // React to job completion
+  useEffect(() => {
+    if (!jobStatus.status) return
+    if (jobStatus.status === 'done') {
+      setIsTransferring(false)
+      setJobId(null)
+      setDone(true)
+    } else if (jobStatus.status === 'failed') {
+      setTransferError(jobStatus.error || 'Transfer failed.')
+      setIsTransferring(false)
+      setJobId(null)
+    }
+  }, [jobStatus])
 
   async function handleTransfer() {
     const token = sessionStorage.getItem('mmToken')
@@ -56,22 +75,36 @@ function TransferPageInner() {
     setComingSoon(false)
 
     try {
-      const res = await fetch(`${apiBase}/memorymint/v1/midnight/${keepsake.id}/transfer`, {
-        method: 'POST',
+      const res  = await fetch(`${apiBase}/memorymint/v1/midnight/${keepsake.id}/transfer`, {
+        method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipient: recipient.trim() }),
+        body:    JSON.stringify({ recipient: recipient.trim() }),
       })
       const data = await res.json()
 
       if (res.status === 404 || data.code === 'rest_no_route' || data.code === 'midnight_not_configured') {
         setComingSoon(true)
+        setIsTransferring(false)
         return
       }
-      if (!data.success) { setTransferError(data.error || 'Transfer failed.'); return }
+
+      // Async path — job queued, keep isTransferring=true and start polling
+      if (res.status === 202 && data.queued) {
+        setJobId(data.job_id)
+        return
+      }
+
+      if (!data.success) {
+        setTransferError(data.error || 'Transfer failed.')
+        setIsTransferring(false)
+        return
+      }
+
+      // Synchronous fallback
+      setIsTransferring(false)
       setDone(true)
     } catch {
       setTransferError('Network error. Please try again.')
-    } finally {
       setIsTransferring(false)
     }
   }
@@ -134,6 +167,22 @@ function TransferPageInner() {
         </motion.div>
       )}
 
+      {/* Polling progress banner */}
+      {jobId && jobStatus.status && jobStatus.status !== 'done' && jobStatus.status !== 'failed' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="bg-purple-50 border border-purple-200 rounded-2xl p-5 mb-6 flex items-start gap-4"
+        >
+          <div className="text-2xl animate-spin mt-0.5">⚙️</div>
+          <div>
+            <p className="font-semibold text-purple-900">Transfer in progress…</p>
+            <p className="text-purple-700 text-sm mt-1">
+              The Midnight network is processing your transfer. This may take up to 15 minutes.
+              Keep this tab open — the page will update automatically when complete.
+            </p>
+          </div>
+        </motion.div>
+      )}
+
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
           <p className="font-semibold text-amber-900 mb-1">⚠ This action is permanent</p>
@@ -147,10 +196,11 @@ function TransferPageInner() {
 
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
+            <label htmlFor="recipient-email" className="block text-sm font-semibold text-gray-700 mb-2">
               Recipient email address
             </label>
             <input
+              id="recipient-email"
               type="email"
               value={recipient}
               onChange={e => { setRecipient(e.target.value); setTransferError('') }}
@@ -165,6 +215,7 @@ function TransferPageInner() {
               type="checkbox"
               checked={confirmed}
               onChange={e => setConfirmed(e.target.checked)}
+              aria-label="Confirm permanent transfer"
               className="mt-1 w-4 h-4 accent-[#ffbd59]"
             />
             <span className="text-sm text-gray-700">

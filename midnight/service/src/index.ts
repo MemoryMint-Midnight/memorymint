@@ -10,7 +10,7 @@
 
 import express from 'express';
 import cors from 'cors';
-import { setNetworkId } from '@midnight-ntwrk/midnight-js/network-id';
+import { setNetworkId, type NetworkId } from '@midnight-ntwrk/midnight-js/network-id';
 import { validateConfig, SERVICE } from './config.js';
 import { requireApiSecret } from './middleware/auth.js';
 import { getProviders } from './midnight/provider.js';
@@ -21,16 +21,18 @@ import { transferRouter } from './routes/transfer.js';
 import { tagRouter } from './routes/tag.js';
 import { revokeRouter } from './routes/revoke.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { logger } from './lib/logger.js';
 
-// Must be set before any wallet or contract operation
-setNetworkId('preprod');
+// Must be set before any wallet or contract operation.
+// Override with MIDNIGHT_NETWORK_ID=mainnet for production.
+setNetworkId((process.env.MIDNIGHT_NETWORK_ID ?? 'preprod') as NetworkId);
 
 // Prevent ECONNRESET / WebSocket errors from crashing the process
 process.on('uncaughtException', (err: Error) => {
-  console.error('[midnight-service] Uncaught exception (service staying up):', err.message);
+  logger.error({ err }, 'Uncaught exception (service staying up)');
 });
 process.on('unhandledRejection', (reason: unknown) => {
-  console.error('[midnight-service] Unhandled rejection (service staying up):', reason);
+  logger.error({ reason }, 'Unhandled rejection (service staying up)');
 });
 
 // Validate config on startup — crashes immediately if env vars are missing
@@ -42,9 +44,23 @@ const app = express();
 
 app.use(express.json({ limit: '1mb' }));
 
-// CORS: only accept requests from the Next.js origin
+// CORS: validate origin against an explicit allowlist.
+// Set CORS_ALLOWED_ORIGINS as a comma-separated list for multi-origin support
+// (e.g. "https://memorymint.fun,https://www.memorymint.fun").
+// Falls back to NEXT_PUBLIC_URL for single-origin setups.
+const allowedOrigins: string[] = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+  : [process.env.NEXT_PUBLIC_URL ?? 'http://localhost:3000'];
+
 app.use(cors({
-  origin: process.env.NEXT_PUBLIC_URL ?? 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn({ origin }, 'CORS: rejected origin');
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    }
+  },
   methods: ['GET', 'POST'],
 }));
 
@@ -85,14 +101,14 @@ app.use(errorHandler);
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(SERVICE.port, () => {
-  console.log(`[midnight-service] Listening on port ${SERVICE.port}`);
-  console.log(`[midnight-service] Proof server: ${process.env.PROOF_SERVER_URL ?? 'http://127.0.0.1:6300'}`);
-  console.log(`[midnight-service] Health: http://localhost:${SERVICE.port}/health`);
+  logger.info({ port: SERVICE.port }, 'Listening');
+  logger.info({ proofServer: process.env.PROOF_SERVER_URL ?? 'http://127.0.0.1:6300' }, 'Proof server');
+  logger.info({ url: `http://localhost:${SERVICE.port}/health` }, 'Health endpoint');
 
   // Eagerly initialise the wallet so it's synced before the first request arrives
   getProviders().then(() => {
-    console.log('[midnight-service] Wallet ready');
-  }).catch((err) => {
-    console.error('[midnight-service] Wallet init failed:', err);
+    logger.info('Wallet ready');
+  }).catch((err: unknown) => {
+    logger.error({ err }, 'Wallet init failed');
   });
 });

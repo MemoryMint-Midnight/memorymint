@@ -8,6 +8,7 @@
  *   proofType:        "ownership" | "created_before" | "contains_tag" | "content_authentic",
  *   userMnemonic:     string,   // BIP-39 mnemonic — sk derived internally
  *   cutoffTimestamp?: number,   // required for "created_before" (public circuit arg)
+ *   contentHash?:     string,   // required for "content_authentic" — 64-char hex SHA-256 of content
  * }
  *
  * Response:  { proofType, txId, verified: true }
@@ -18,26 +19,28 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { callCircuit } from '../midnight/contract.js';
+import { mnemonicSchema } from '../lib/schemas.js';
 
 export const proveRouter = Router({ mergeParams: true });
 
 const ProveBody = z.discriminatedUnion('proofType', [
   z.object({
     proofType:    z.literal('ownership'),
-    userMnemonic: z.string().min(1),
+    userMnemonic: mnemonicSchema,
   }),
   z.object({
     proofType:       z.literal('created_before'),
-    userMnemonic:    z.string().min(1),
+    userMnemonic:    mnemonicSchema,
     cutoffTimestamp: z.number().int().positive(),
   }),
   z.object({
     proofType:    z.literal('contains_tag'),
-    userMnemonic: z.string().min(1),
+    userMnemonic: mnemonicSchema,
   }),
   z.object({
     proofType:    z.literal('content_authentic'),
-    userMnemonic: z.string().min(1),
+    userMnemonic: mnemonicSchema,
+    contentHash:  z.string().regex(/^[0-9a-f]{64}$/i, 'contentHash must be a 64-char hex SHA-256'),
   }),
 ]);
 
@@ -64,8 +67,14 @@ proveRouter.post('/', async (req: Request, res: Response, next: NextFunction) =>
   const circuitArgs: unknown[] =
     body.proofType === 'created_before' ? [BigInt(body.cutoffTimestamp)] : [];
 
+  // content_authentic: pass contentHash as Uint8Array matching MemoryPrivateState.contentHash
+  const privateStateUpdates =
+    body.proofType === 'content_authentic'
+      ? { contentHash: Buffer.from(body.contentHash, 'hex') }
+      : {};
+
   try {
-    const txId = await callCircuit(contractAddress, circuit, body.userMnemonic, {}, circuitArgs);
+    const txId = await callCircuit(contractAddress, circuit, body.userMnemonic, privateStateUpdates, circuitArgs);
     res.json({ proofType: body.proofType, txId, verified: true });
   } catch (err) {
     next(err);

@@ -3,6 +3,7 @@ namespace MemoryMint\Api;
 
 use MemoryMint\Helpers\Validation;
 use MemoryMint\Helpers\Encryption;
+use MemoryMint\Helpers\CoseVerifier;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -18,12 +19,40 @@ class AuthApi {
     const NAMESPACE = 'memorymint/v1';
 
     public function register_routes() {
+        register_rest_route(self::NAMESPACE, '/auth/wallet-nonce', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'wallet_nonce'],
+            'permission_callback' => '__return_true',
+            'args'                => [
+                'address' => [
+                    'required'          => true,
+                    'type'              => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ],
+        ]);
+
         register_rest_route(self::NAMESPACE, '/auth/wallet-connect', [
             'methods' => 'POST',
             'callback' => [$this, 'wallet_connect'],
             'permission_callback' => '__return_true',
             'args' => [
                 'wallet_address' => [
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'raw_address' => [
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'signature' => [
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'key' => [
                     'required' => true,
                     'type' => 'string',
                     'sanitize_callback' => 'sanitize_text_field',
@@ -96,10 +125,19 @@ class AuthApi {
             'permission_callback' => [$this, 'check_auth'],
         ]);
 
+        register_rest_route(self::NAMESPACE, '/auth/seed-phrase-otp', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'send_seed_phrase_otp'],
+            'permission_callback' => [$this, 'check_auth'],
+        ]);
+
         register_rest_route(self::NAMESPACE, '/auth/seed-phrase', [
             'methods'             => 'GET',
             'callback'            => [$this, 'get_seed_phrase'],
             'permission_callback' => [$this, 'check_auth'],
+            'args'                => [
+                'otp' => ['required' => true, 'type' => 'string'],
+            ],
         ]);
 
         register_rest_route(self::NAMESPACE, '/auth/confirm-backup', [
@@ -284,19 +322,86 @@ class AuthApi {
     }
 
     /**
+     * Issue a short-lived nonce that the wallet must sign to prove key ownership.
+     * Nonce is stored in a WP transient keyed by the raw hex address (TTL: 2 minutes).
+     */
+    public function wallet_nonce(\WP_REST_Request $request) {
+        $address = strtolower(trim($request->get_param('address')));
+
+        if (empty($address) || !ctype_xdigit($address)) {
+            return new \WP_REST_Response([
+                'success' => false,
+                'error'   => 'A valid hex address is required.',
+            ], 400);
+        }
+
+        $nonce     = bin2hex(random_bytes(16)); // 32-char hex = 16 bytes of entropy
+        $cache_key = 'memorymint_wallet_nonce_' . md5($address);
+
+        set_transient($cache_key, $nonce, 2 * MINUTE_IN_SECONDS);
+
+        return new \WP_REST_Response(['success' => true, 'nonce' => $nonce], 200);
+    }
+
+    /**
      * Authenticate via Cardano wallet address.
+     * Requires a CIP-8 COSE_Sign1 signed nonce to prove ownership of the address.
      * Creates a WordPress user if one doesn't exist for this wallet.
      */
     public function wallet_connect(\WP_REST_Request $request) {
         $wallet_address = $request->get_param('wallet_address');
-        $stake_address = $request->get_param('stake_address') ?? '';
-        $wallet_name = $request->get_param('wallet_name') ?? 'cardano';
+        $raw_address    = strtolower(trim($request->get_param('raw_address') ?? ''));
+        $signature      = $request->get_param('signature') ?? '';
+        $cose_key       = $request->get_param('key') ?? '';
+        $stake_address  = $request->get_param('stake_address') ?? '';
+        $wallet_name    = $request->get_param('wallet_name') ?? 'cardano';
 
-        if (!$wallet_address) {
+        if (!$wallet_address || !$raw_address || !$signature || !$cose_key) {
             return new \WP_REST_Response([
                 'success' => false,
-                'error' => 'Wallet address is required.',
+                'error'   => 'wallet_address, raw_address, signature and key are all required.',
             ], 400);
+        }
+
+        // Retrieve nonce (do not delete yet — let verification fail first if bad)
+        $cache_key = 'memorymint_wallet_nonce_' . md5($raw_address);
+        $nonce     = get_transient($cache_key);
+
+        if (empty($nonce)) {
+            return new \WP_REST_Response([
+                'success' => false,
+                'error'   => 'Nonce expired or not found. Please request a new nonce.',
+            ], 401);
+        }
+
+        // Verify the COSE_Sign1 signature — this proves the caller controls the private key
+        if (!CoseVerifier::verify($signature, $cose_key, $nonce, $raw_address)) {
+            return new \WP_REST_Response([
+                'success' => false,
+                'error'   => 'Signature verification failed.',
+            ], 401);
+        }
+
+        // Consume nonce — single-use, prevent replay
+        delete_transient($cache_key);
+
+        // M5 — address ownership check: if this address already belongs to a
+        // different WP account, a currently-authenticated user must not be allowed
+        // to connect it (prevents session-based account takeover).
+        $existing_owners = get_users([
+            'meta_key'   => 'memorymint_wallet_address',
+            'meta_value' => $wallet_address,
+            'number'     => 1,
+            'fields'     => 'ID',
+        ]);
+        if (!empty($existing_owners) && is_user_logged_in()) {
+            $owner_id = (int) $existing_owners[0];
+            if ($owner_id !== get_current_user_id()) {
+                return new \WP_REST_Response([
+                    'success' => false,
+                    'error'   => 'This wallet address is registered to a different account.',
+                ], 403);
+            }
         }
 
         // Look up user by wallet address in user meta
@@ -774,7 +879,34 @@ class AuthApi {
     }
 
     /**
+     * Send a fresh OTP to the current user's email as re-auth before revealing seed phrase.
+     * POST /auth/seed-phrase-otp — authenticated endpoint.
+     */
+    public function send_seed_phrase_otp(\WP_REST_Request $request) {
+        $user = wp_get_current_user();
+
+        if (get_user_meta($user->ID, 'memorymint_wallet_backed_up', true)) {
+            return new \WP_REST_Response([
+                'success'   => false,
+                'error'     => 'Seed phrase already backed up.',
+                'backed_up' => true,
+            ], 400);
+        }
+
+        $result = $this->send_otp($user);
+
+        $response = ['success' => true, 'message' => 'Verification code sent to your email.'];
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $response['debug_otp'] = $result['otp'];
+        }
+
+        return new \WP_REST_Response($response, 200);
+    }
+
+    /**
      * Return the decrypted seed phrase for a custodial (email) user.
+     * Requires OTP re-verification — a fresh code must be requested via
+     * POST /auth/seed-phrase-otp first.
      * Only available before the user has confirmed backup.
      */
     public function get_seed_phrase(\WP_REST_Request $request) {
@@ -787,6 +919,28 @@ class AuthApi {
                 'backed_up' => true,
             ], 400);
         }
+
+        // Verify OTP re-auth — same mechanism as email_verify
+        $otp = preg_replace('/\D/', '', $request->get_param('otp') ?? '');
+        if (strlen($otp) !== 6) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Invalid verification code.'], 400);
+        }
+
+        $expiry = get_user_meta($user_id, 'memorymint_otp_expiry', true);
+        if (!$expiry || time() > intval($expiry)) {
+            delete_user_meta($user_id, 'memorymint_otp_hash');
+            delete_user_meta($user_id, 'memorymint_otp_expiry');
+            return new \WP_REST_Response(['success' => false, 'error' => 'Verification code expired. Request a new one.'], 401);
+        }
+
+        $stored_hash = get_user_meta($user_id, 'memorymint_otp_hash', true);
+        if (!$stored_hash || !wp_check_password($otp, $stored_hash)) {
+            return new \WP_REST_Response(['success' => false, 'error' => 'Incorrect verification code.'], 401);
+        }
+
+        // Consume OTP — single use
+        delete_user_meta($user_id, 'memorymint_otp_hash');
+        delete_user_meta($user_id, 'memorymint_otp_expiry');
 
         $encrypted = get_user_meta($user_id, 'memorymint_custodial_mnemonic_encrypted', true);
         if (empty($encrypted)) {

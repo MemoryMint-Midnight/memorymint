@@ -5,6 +5,7 @@ use MemoryMint\MemoryMint;
 use MemoryMint\Helpers\Encryption;
 use MemoryMint\Services\AnvilService;
 use MemoryMint\Services\MidnightService;
+use MemoryMint\Cron\MidnightJobs;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -182,22 +183,29 @@ class MintApi {
         }
 
         // Build CIP-25 metadata
-        $asset_name = $this->generate_asset_name($keepsake);
+        // Private keepsakes never expose the real file URL on-chain — use the
+        // placeholder thumbnail so ciphertext can't be downloaded for offline attacks.
+        $asset_name    = $this->generate_asset_name($keepsake);
+        $is_private    = ($keepsake->keepsake_type ?? '') === 'private';
+        $metadata_image = $is_private
+            ? ($keepsake->thumbnail_url ?: '')
+            : $keepsake->file_url;
         $metadata = [
             'name' => $keepsake->title,
             'description' => $keepsake->description ?: '',
-            'image' => $keepsake->file_url,
+            'image' => $metadata_image,
             'mediaType' => $this->get_media_type($keepsake->file_type),
             'creator' => 'Memory Mint',
             'timestamp' => strtotime($keepsake->created_at),
             'privacy' => $keepsake->privacy,
         ];
 
-        // Custodial (email) users pay for their own mints — the policy wallet only
-        // co-signs as minting authority. Check they have enough ADA before building.
+        // Self-custody (browser wallet) users fund their own mints — verify they have
+        // enough ADA. Custodial (email) users are funded by the policy wallet so their
+        // custodial address never needs to hold ADA.
         $is_custodial_user = (bool) get_user_meta($user->ID, 'memorymint_is_custodial', true);
 
-        if ($is_custodial_user) {
+        if (!$is_custodial_user) {
             $balance = $anvil->get_address_balance($user_wallet);
             // Only block when we have a definitive balance (null = API unavailable, let Anvil surface the error)
             if ($balance !== null && $balance < 2.5) {
@@ -222,7 +230,12 @@ class MintApi {
             'asset_name'           => $asset_name,
             'metadata'             => $metadata,
         ];
-        // No fee_payer_address — users fund their own mints.
+
+        // Custodial users: policy wallet funds the tx (fee_payer_address). AnvilService
+        // will use policy UTXOs as inputs and route the NFT explicitly to user_address.
+        if ($is_custodial_user) {
+            $tx_params['fee_payer_address'] = $policy_wallet->payment_address;
+        }
 
         // Build transaction via Anvil API
         $tx_result = $anvil->build_mint_transaction($tx_params);
@@ -309,6 +322,20 @@ class MintApi {
             return new \WP_REST_Response(['success' => false, 'error' => 'Keepsake is already minted.'], 400);
         }
 
+        // Idempotency: if Anvil already confirmed submission but DB update didn't complete
+        // (e.g. network drop between submit and wp_update), return the cached tx_hash.
+        $inflight_key = 'memorymint_txhash_' . $keepsake_id;
+        $cached_tx    = get_transient($inflight_key);
+        if ($cached_tx && is_string($cached_tx)) {
+            return new \WP_REST_Response([
+                'success'      => true,
+                'tx_hash'      => $cached_tx,
+                'asset_id'     => $keepsake->asset_id ?? '',
+                'explorer_url' => $this->get_explorer_url($cached_tx, MemoryMint::get_network()),
+                'idempotent'   => true,
+            ], 200);
+        }
+
         if (!$this->validate_tx_hex($unsigned_tx)) {
             return new \WP_REST_Response(['success' => false, 'error' => 'Invalid transaction data. Please try building the transaction again.'], 400);
         }
@@ -390,6 +417,9 @@ class MintApi {
 
         $tx_hash = $submit_result['tx_hash'];
 
+        // Cache tx_hash so a retry after a network drop doesn't re-submit.
+        set_transient($inflight_key, $tx_hash, 5 * MINUTE_IN_SECONDS);
+
         // Update keepsake with minting data
         $wpdb->update($table, [
             'mint_status' => 'minted',
@@ -411,6 +441,7 @@ class MintApi {
         ]);
 
         delete_transient($transient_key);
+        delete_transient($inflight_key);
 
         return new \WP_REST_Response([
             'success' => true,
@@ -444,6 +475,19 @@ class MintApi {
 
         if ($keepsake->mint_status === 'minted') {
             return new \WP_REST_Response(['success' => false, 'error' => 'Keepsake is already minted.'], 400);
+        }
+
+        // Idempotency: return cached tx_hash if Anvil confirmed but DB update didn't complete.
+        $inflight_key = 'memorymint_txhash_' . $keepsake_id;
+        $cached_tx    = get_transient($inflight_key);
+        if ($cached_tx && is_string($cached_tx)) {
+            return new \WP_REST_Response([
+                'success'      => true,
+                'tx_hash'      => $cached_tx,
+                'asset_id'     => $keepsake->asset_id ?? '',
+                'explorer_url' => $this->get_explorer_url($cached_tx, MemoryMint::get_network()),
+                'idempotent'   => true,
+            ], 200);
         }
 
         if (!$this->validate_tx_hex($unsigned_tx)) {
@@ -555,6 +599,9 @@ class MintApi {
 
         $tx_hash = $submit_result['tx_hash'];
 
+        // Cache tx_hash so a retry after a network drop doesn't re-submit.
+        set_transient($inflight_key, $tx_hash, 5 * MINUTE_IN_SECONDS);
+
         // Update keepsake
         $wpdb->update($table, [
             'mint_status'      => 'minted',
@@ -576,6 +623,7 @@ class MintApi {
         ]);
 
         delete_transient($transient_key);
+        delete_transient($inflight_key);
 
         return new \WP_REST_Response([
             'success'      => true,
@@ -702,10 +750,13 @@ class MintApi {
      *
      * POST /memorymint/v1/mint/midnight/{keepsake_id}
      *
-     * For custodial (email) users whose mnemonic is still server-side, the sidecar
-     * call happens immediately. Self-custody users whose mnemonic has been deleted
-     * receive a 202 with requires_midnight_wallet = true — they complete this step
-     * via the Midnight DApp Connector in the Next.js frontend.
+     * Queues an async job and returns 202 immediately — the sidecar call (8–15 min)
+     * runs in a WP Cron background process, outside Nginx's fastcgi_read_timeout.
+     * Frontend polls GET /memorymint/v1/midnight/{id}/status for midnight_status,
+     * or GET /memorymint/v1/midnight/job/{job_id} for the full job result.
+     *
+     * Self-custody users whose mnemonic has been deleted receive 202 with
+     * requires_midnight_wallet = true — they complete via the Midnight DApp Connector.
      */
     public function mint_on_midnight(\WP_REST_Request $request) {
         $user        = wp_get_current_user();
@@ -747,23 +798,15 @@ class MintApi {
             ], 400);
         }
 
-        // Custodial users have their mnemonic stored server-side.
+        // Self-custody user — mnemonic was deleted after seed backup.
         $encrypted_mnemonic = get_user_meta($user->ID, 'memorymint_custodial_mnemonic_encrypted', true);
-
         if (empty($encrypted_mnemonic)) {
-            // Self-custody user — mnemonic was deleted after seed backup.
-            // They must use the Midnight DApp Connector in the frontend to complete this step.
             return new \WP_REST_Response([
-                'success'                => false,
+                'success'                 => false,
                 'requires_midnight_wallet' => true,
-                'error'                  => 'Your seed phrase is no longer held by the server. '
-                                         . 'Connect your Midnight wallet (Lace or 1AM) to complete registration.',
+                'error'                   => 'Your seed phrase is no longer held by the server. '
+                                          . 'Connect your Midnight wallet (Lace or 1AM) to complete registration.',
             ], 202);
-        }
-
-        $mnemonic = Encryption::decrypt($encrypted_mnemonic);
-        if (!$mnemonic) {
-            return new \WP_REST_Response(['success' => false, 'error' => 'Failed to decrypt wallet credentials.'], 500);
         }
 
         $midnight = new MidnightService();
@@ -771,45 +814,23 @@ class MintApi {
             return new \WP_REST_Response(['success' => false, 'error' => 'Midnight sidecar not configured. Contact admin.'], 503);
         }
 
-        // Build the cardanoAssetId hash for Standard keepsakes.
-        $cardano_asset_id = MidnightService::ZERO_BYTES32;
-        if ($keepsake_type === 'standard' && !empty($keepsake->policy_id)) {
-            $asset_name       = $this->generate_asset_name($keepsake);
-            $cardano_asset_id = MidnightService::hash_cardano_asset($keepsake->policy_id, $asset_name);
+        // Prevent duplicate queuing: if already minting/queued from a prior request, return job_id.
+        if (in_array($keepsake->midnight_status, ['minting', 'pending'], true)) {
+            // Check for an existing running job for this keepsake (best-effort, no hard guarantee)
+            return new \WP_REST_Response([
+                'success' => true,
+                'queued'  => true,
+                'message' => 'Midnight registration is already in progress.',
+            ], 202);
         }
 
-        $wpdb->update($table, ['midnight_status' => 'minting'], ['id' => $keepsake_id]);
-
-        // Give PHP enough time for the sidecar (cold-start can take several minutes).
-        @set_time_limit(360);
-
-        $result = $midnight->mint_memory(
-            $mnemonic,
-            $keepsake->content_hash,
-            strtotime($keepsake->created_at),
-            $keepsake->geo_hash ?? MidnightService::ZERO_BYTES32,
-            intval($keepsake->tag_count ?? 0),
-            $cardano_asset_id
-        );
-
-        if (function_exists('sodium_memzero')) {
-            sodium_memzero($mnemonic);
-        }
-
-        if (!$result['success']) {
-            $wpdb->update($table, ['midnight_status' => 'failed'], ['id' => $keepsake_id]);
-            return new \WP_REST_Response(['success' => false, 'error' => $result['error']], 500);
-        }
-
-        $wpdb->update($table, [
-            'midnight_status'  => 'minted',
-            'midnight_address' => $result['contract_address'],
-        ], ['id' => $keepsake_id]);
+        $job_id = MidnightJobs::queue($user->ID, $keepsake_id, 'mint');
 
         return new \WP_REST_Response([
-            'success'          => true,
-            'midnight_address' => $result['contract_address'],
-        ], 200);
+            'success' => true,
+            'queued'  => true,
+            'job_id'  => $job_id,
+        ], 202);
     }
 
     private function generate_asset_name($keepsake) {

@@ -7,6 +7,239 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## Security Audit Summary — 2026-05-10
+
+A full security and production-readiness audit was completed on 2026-05-09 covering the WordPress plugin, Midnight sidecar, and Next.js frontend. **25 findings** were identified across four severity tiers and resolved across versions v1.1.23–v1.1.28.
+
+### Scope
+
+| Layer | What was audited |
+|---|---|
+| WordPress plugin | Auth flows, encryption, Cardano mint pipeline, Midnight API endpoints, admin UI |
+| Midnight sidecar | Key handling, circuit wiring, provider lifecycle, network config, logging |
+| Next.js frontend | Client-side secrets, wallet auth, mint UX flow, async polling |
+| Cross-cutting | Atomicity guarantees, rate limiting, error propagation, async job safety |
+
+### Finding Summary
+
+| ID | Severity | Title | Fixed in |
+|---|---|---|---|
+| C1 | Critical | wallet_connect had no signature verification — any address string could auth as any user | v1.1.23 |
+| C2 | Critical | Key storage used AES-256-CBC with raw SHA-256 KDF — no authentication tag, no salt | v1.1.23 |
+| C3 | Critical | proveContentAuthentic passed wrong witness key + hex string instead of Uint8Array | v1.1.23 / v1.1.27 |
+| C4 | Critical | NEXT_PUBLIC_ANVIL_API_KEY baked into browser bundle via dead code | v1.1.23 |
+| H1 | High | Transfer sent recipient's raw mnemonic to sidecar over HTTP | v1.1.24 |
+| H2 | High | Client-side AES-GCM encryption KDF was raw SHA-256 (no salt, no stretching) | v1.1.23 |
+| H3 | High | Private keepsake real file_url written to public CIP-25 on-chain metadata | v1.1.24 |
+| H4 | High | Midnight indexer defaulted to deprecated API v3 | v1.1.24 |
+| H5 | High | Re-sync after contract deploy had no inner timeout — could hang indefinitely | v1.1.24 |
+| H6 | High | No DUST balance monitoring — operator blind to sidecar running dry | v1.1.24 |
+| H7 | High | No Cardano↔Midnight atomicity — failed Midnight mints silently abandoned | v1.1.24 |
+| H8 | High | Midnight mint endpoint had no rate limiting | v1.1.24 |
+| M1 | Medium | get_seed_phrase required only a JWT — no step-up auth before returning mnemonic | v1.1.25 |
+| M2 | Medium | filePrivateStateProvider had no write mutex — concurrent writes could corrupt state | v1.1.25 |
+| M3 | Medium | networkId hardcoded to 'preprod' — mainnet deploy would silently target wrong network | v1.1.25 |
+| M4 | Medium | Mnemonic validation duplicated across 4 routes with inconsistent regex | v1.1.25 |
+| M5 | Medium | wallet_connect didn't verify address wasn't already owned by a different account | v1.1.25 |
+| M6 | Medium | Dead inMemoryPrivateStateProvider left in BuiltProviders (would use volatile state on restart) | v1.1.25 |
+| M7 | Medium | Tag circuit input validation absent (already resolved by prior circuit refactor) | — |
+| M8 | Medium | filePrivateStateProvider export/import were unimplemented stubs | v1.1.25 |
+| L1 | Low | CORS origin was any value of NEXT_PUBLIC_URL env var — no validation | v1.1.26 |
+| L2 | Low | Policy wallet had no time-lock option for mainnet — permanent minting policy | v1.1.26 |
+| L3 | Low | No idempotency key on Cardano mint — duplicate submission possible on network drop | v1.1.26 |
+| L4 | Low | CIP-25 label 721 used instead of CIP-68 (no migration path for mainnet) | v1.1.26 |
+| L5 | Low | Midnight sidecar used console.log — no structured logs, no level control | v1.1.26 |
+
+### Additional Production Bugs (found during audit implementation)
+
+| ID | Description | Fixed in |
+|---|---|---|
+| Bug 1 | Custodial mints always failed — ADA balance check ran against intentionally-empty custodial wallet; `fee_payer_address` never set so Anvil tried to fund from it | v1.1.27 |
+| Bug 2 | All Midnight operations 504'd in production — sidecar calls (8–15 min) blocked synchronously inside PHP request handler; Nginx's `fastcgi_read_timeout` (60s) killed every response | v1.1.27 |
+| Bug 3 | proveContentAuthentic final key name wrong — `secretContentHash` is not a field in `MemoryPrivateState`; corrected to `contentHash` with `Buffer.from(hex, 'hex')` | v1.1.27 |
+
+### Frontend / Flow Inefficiencies (resolved post-audit)
+
+| ID | Description | Fixed in |
+|---|---|---|
+| I1 | prove/transfer/revoke pages expected synchronous 200 — returned 202 async, pages never resolved | v1.1.28 |
+| I2 | Wallet connected twice per file in mint loop — N files triggered 2N wallet popups | v1.1.28 |
+| I3 | Batch pricing logic (`typeCounts` + fee reduce) duplicated verbatim in 3 places | v1.1.28 |
+| I4 | `pollTxStatus` slept 5s before first attempt — Anvil confirms nearly instantly | v1.1.28 |
+| I5 | `POST /mint/midnight/{id}` never called from mint page — private keepsakes never registered on Midnight | v1.1.28 |
+
+### VPS Production Requirement (Bug 2)
+
+To prevent Midnight job timeouts in production, add to `wp-config.php`:
+```php
+define('DISABLE_WP_CRON', true);
+```
+And add to system crontab:
+```
+* * * * * wp cron event run --due-now --path=/var/www/html
+```
+This ensures Midnight jobs (`memorymint_run_midn_job`) execute in a CLI process outside Nginx's `fastcgi_read_timeout`.
+
+---
+
+## [1.1.28] - 2026-05-10
+
+### Improvements
+
+- **Frontend: Mint page calls `POST /mint/midnight/{id}` after Cardano confirms** (`frontend/app/mint/page.tsx`)
+  - Private keepsakes were never registered on Midnight from the mint flow — the endpoint existed but was never called
+  - After all Cardano transactions confirm, the mint page now fires `POST /memorymint/v1/mint/midnight/{keepsake_id}` for each private keepsake, handles the 202 async response, and shows a "Midnight privacy registration queued" notice with a link to the gallery for status tracking
+  - Calls are fired in parallel with `Promise.allSettled` so a Midnight failure does not block the Cardano mint result from displaying
+
+- **Frontend: Deduplicated batch pricing logic** (`frontend/app/mint/page.tsx`)
+  - The batch fee computation (`typeCounts` + `totalUsd` + `totalAda`) was copied verbatim in 3 places: the balance pre-check, the inline fee widget, and the confirmation modal
+  - Extracted into a module-level `computeBatchTotals(files, priceInfo)` helper used at all 3 sites — any future pricing change updates automatically everywhere
+
+- **Frontend: Wallet connected once for entire mint batch** (`frontend/app/mint/page.tsx`)
+  - `connectWallet()` was called twice per file (once for encryption, once for signing) — N files triggered 2N wallet popups
+  - Wallet is now connected once before the loop; the same `walletApi` and `addressHex` are reused across all encrypt + sign operations
+
+- **Frontend: Batch tx polling parallelised** (`frontend/app/mint/page.tsx`)
+  - Each submitted transaction was polled sequentially, adding ~5 s wait per file
+  - All N tx hashes are now polled simultaneously with `Promise.all` so the batch shares one confirmation window
+
+- **Frontend: Midnight pages handle 202 async response with job polling** (`frontend/app/midnight/prove/page.tsx`, `transfer/page.tsx`, `revoke/page.tsx`, `lib/useMidnightJob.ts`)
+  - prove, transfer, revoke pages previously expected a synchronous success response; they now detect 202 + `queued`, store the `job_id`, and use the new `useMidnightJob` hook to poll `GET /midnight/job/{id}` every 8 s, updating UI automatically on completion or failure
+
+- **Frontend: `pollTxStatus` first check at 2 s instead of 5 s** (`frontend/app/mint/page.tsx`)
+  - Flat 5 s sleep before every poll attempt wasted 3 s on the first check; Anvil writes `confirmed` nearly instantly after submission
+  - First attempt now checks at 2 s; subsequent attempts use the existing 5 s interval
+
+---
+
+## [1.1.27] - 2026-05-10
+
+### Bug Fixes
+
+- **Bug 1 — Custodial mints always fail at build step** (`class-mint-api.php` `build_transaction`)
+  - The ADA balance check was applied to custodial (email) users whose wallets intentionally hold no ADA, so every custodial mint was rejected with a "not enough ADA" error before even calling Anvil
+  - Fixed: balance check now only runs for self-custody (browser wallet) users (`!$is_custodial_user`)
+  - Fixed: `fee_payer_address = $policy_wallet->payment_address` is now added to `$tx_params` for custodial users so `AnvilService::build_mint_transaction()` correctly uses the policy wallet UTXOs to fund the transaction and routes the NFT explicitly to the custodial user's address via a 2 ADA output
+
+- **Bug 2 — All Midnight operations 504 in production** (`class-midnight-api.php`, `class-mint-api.php`, new `includes/cron/class-midnight-jobs.php`)
+  - Sidecar calls (prove, transfer, revoke, mint) take 8–15 min but were invoked synchronously inside the PHP request handler; Nginx's `fastcgi_read_timeout` (default 60 s) kills the response before the sidecar finishes, returning 504 to the user
+  - Fixed: new `MidnightJobs` async job queue (`class-midnight-jobs.php`) — stores job metadata in `wp_options`, schedules a WP Cron single event (`memorymint_run_midn_job`), and returns control immediately
+  - `prove`, `transfer`, `revoke` in `class-midnight-api.php` now queue a job and return HTTP 202 `{ queued: true, job_id }`; mnemonic availability is still validated synchronously (fail fast)
+  - `mint_on_midnight` in `class-mint-api.php` now queues a job and returns HTTP 202 `{ queued: true, job_id }`
+  - New polling endpoints added to `class-midnight-api.php`:
+    - `GET /memorymint/v1/midnight/{id}/status` — returns `midnight_status` + `midnight_address` from the keepsake row (for Midnight mint polling)
+    - `GET /memorymint/v1/midnight/job/{job_id}` — returns full job status + result for prove/transfer/revoke (owner-only)
+  - `memorymint_run_midn_job` hook registered in `class-memory-mint.php`; cleared on deactivation in `class-deactivator.php`
+  - **VPS production requirement**: add `define('DISABLE_WP_CRON', true)` to wp-config.php and a real system cron (`* * * * * wp cron event run --due-now --path=/var/www/html`) so jobs run in a CLI process without any Nginx timeout
+
+- **Bug 3 — proveContentAuthentic private witness uses wrong key and type** (`midnight/service/src/routes/prove.ts`)
+  - `privateStateUpdates` was set to `{ secretContentHash: body.contentHash }` — wrong key (`secretContentHash` vs `contentHash` in `MemoryPrivateState`) and wrong type (hex string vs `Uint8Array`)
+  - The `makeWitnesses.secretContentHash` function reads `ps.contentHash` (a `Uint8Array`); passing a hex string under a non-existent key meant the witness always read zeros from the base private state
+  - Fixed: `{ contentHash: Buffer.from(body.contentHash, 'hex') }` — correct key, correct type
+
+---
+
+## [1.1.26] - 2026-05-10
+
+### Security / Reliability (Low fixes — L1 through L5)
+
+- **L1 — CORS validated against explicit allowlist** (`index.ts`, `.env.example`)
+  - Replaced open `origin: process.env.NEXT_PUBLIC_URL` with a validated `allowedOrigins` array; new `CORS_ALLOWED_ORIGINS` env var accepts a comma-separated list for multi-domain setups; unrecognised origins are rejected with a logged warning
+- **L2 — Policy wallet time-lock for mainnet** (`class-admin-page.php`, `policy-wallet.php`)
+  - New `before_slot` field shown on the Generate Wallet form when network is `mainnet`; when provided, builds a time-locked `{"type":"all","scripts":[sig,before]}` native script with correct CBOR encoding (`blake2b-224` → `policy_id`); simple sig script used on preprod or when omitted
+  - Admin UI shows current slot estimate and a 5-year recommendation; wallets table warns when the active mainnet wallet has no time-lock
+- **L3 — Cardano transaction idempotency key** (`class-mint-api.php`)
+  - `sign_and_submit` and `custodial_sign` now check for `memorymint_txhash_{keepsake_id}` transient on entry — if set, Anvil already confirmed the submission and the cached `tx_hash` is returned without re-signing or re-submitting
+  - The transient is set immediately after `submit_transaction()` returns success (5-min TTL) and deleted after the DB update completes; eliminates double-spend risk when network drops after Anvil succeeds but before `mint_status = 'minted'` is written
+- **L4 — CIP-25 → CIP-68 migration reminder** (`class-admin-page.php`, `class-anvil-service.php`)
+  - Admin notice shown on all Memory Mint admin pages when network is `mainnet`, reminding to migrate from label 721 (CIP-25) to CIP-68 before launch
+  - `TODO (L4)` comment added in `class-anvil-service.php` at the label 721 metadata key
+- **L5 — Structured logging via pino** (`package.json`, new `lib/logger.ts`, `index.ts`, `errorHandler.ts`, `contract.ts`, `provider.ts`, `filePrivateStateProvider.ts`)
+  - Added `pino@^9.6.0`; created `service/src/lib/logger.ts` exporting a configured pino logger (respects `LOG_LEVEL` env var, default `info`)
+  - Replaced all `console.log/error/warn` calls across the sidecar with structured `logger.info/error/warn` calls using pino's object-first convention; sync progress now logged as structured fields (connected, shielded %, etc.)
+  - `LOG_LEVEL` documented in `.env.example`
+
+---
+
+## [1.1.25] - 2026-05-10
+
+### Security (Medium fixes — M1 through M8)
+
+- **M1 — get_seed_phrase: OTP re-auth gate** (`class-auth-api.php`)
+  - New `POST memorymint/v1/auth/seed-phrase-otp` sends a fresh 6-digit OTP to the user's email (reuses existing `send_otp` mechanism)
+  - `GET memorymint/v1/auth/seed-phrase` now requires `?otp=` query param; verifies against the stored hash, checks expiry, and single-use-consumes it before returning the mnemonic
+- **M2 — filePrivateStateProvider: write mutex** (`filePrivateStateProvider.ts`, `package.json`)
+  - Added `async-mutex@^0.5.0`; module-level `_storeMutex` wraps all read-compute-write operations (`set`, `remove`, `clear`, `setSigningKey`, `removeSigningKey`, `clearSigningKeys`); read-only `get`/`getSigningKey` are unprotected (atomic rename guarantees file validity)
+- **M3 — networkId driven by env var** (`index.ts`, `.env.example`)
+  - `setNetworkId('preprod')` replaced with `setNetworkId((process.env.MIDNIGHT_NETWORK_ID ?? 'preprod') as NetworkId)`
+  - `MIDNIGHT_NETWORK_ID=preprod` documented in `.env.example`; also updated example indexer URLs to v4
+- **M4 — Shared mnemonic Zod schema** (new `lib/schemas.ts`, updated `prove.ts`, `tag.ts`, `transfer.ts`, `revoke.ts`)
+  - Extracted `mnemonicSchema` (`/^([a-z]+)( [a-z]+){11,23}$/`) into `service/src/lib/schemas.ts`; all four mnemonic-accepting routes now import and use it
+- **M5 — wallet_connect: address ownership check** (`class-auth-api.php`)
+  - After CIP-8 sig verification, checks if `wallet_address` already belongs to a different WP user; returns 403 if an authenticated session tries to claim another account's address
+- **M6 — Remove dead inMemoryPrivateStateProvider** (`provider.ts`)
+  - Removed `privateStateProvider: InMemoryPrivateStateProvider` from `BuiltProviders` interface and `buildProviders` return; removed the import; `filePrivateStateProvider` is always created locally in contract.ts
+- **M7 — tagCount Uint<8> validation** — already resolved; `updateTag()` Compact circuit takes no arguments, tagCount field was previously removed from the route body
+- **M8 — filePrivateStateProvider export/import implemented** (`filePrivateStateProvider.ts`)
+  - `exportPrivateStates()` / `exportSigningKeys()`: serialise the relevant store slice to JSON, encrypt with AES-256-GCM keyed from `apiSecret + per-export random salt`, return `PrivateStateExport`
+  - `importPrivateStates()` / `importSigningKeys()`: re-derive key from export's `salt` + `apiSecret`, decrypt, merge with `skip`/`overwrite`/`error` conflict strategies; all operations hold the write mutex
+
+---
+
+## [1.1.24] - 2026-05-10
+
+### Security (High fixes — H1 through H8)
+
+- **H1 — Transfer: new owner's mnemonic no longer sent to sidecar** (`class-midnight-service.php`, `transfer.ts`, `provider.ts`)
+  - PHP derives the new owner's 32-byte Midnight sk locally (PBKDF2-SHA512 BIP-39 seed → HMAC-SHA256 domain key) and sends only `newOwnerSecretKey` (64-char hex)
+  - `transfer.ts` schema changed from `newOwnerMnemonic` → `newOwnerSecretKey`; sidecar calls new `commitmentFromSecretKey(sk)` to compute the on-chain commitment — raw mnemonic never leaves WordPress
+  - New `commitmentFromSecretKey(sk: Uint8Array)` export added to `provider.ts`; `computeOwnerCommitment` now delegates to it
+- **H2 — KDF weak (already fixed as part of C2)** — AES-256-GCM + PBKDF2 in v1.1.23
+- **H3 — Private keepsake file_url hidden from CIP-25 metadata** (`class-mint-api.php`)
+  - `keepsake_type = 'private'` now writes `thumbnail_url` (placeholder) as the CIP-25 `image` field, never the real `file_url`
+- **H4 — Midnight indexer upgraded to API v4** (`config.ts`)
+  - Default `MIDNIGHT.indexer` and `MIDNIGHT.indexerWS` changed from `/api/v3/graphql` → `/api/v4/graphql`
+- **H5 — Re-sync after deploy wrapped in 2-min timeout** (`contract.ts`)
+  - `_reSyncWallet()` after `deployContract()` now wrapped in `withTimeout(2 * 60 * 1000, 're-sync after deploy')` so a stall surfaces quickly
+- **H6 — DUST balance added to health endpoint** (`health.ts`)
+  - `GET /health` now reports `dustBalance` (string, lovelace) and `dustWarning` (non-null if below 1T DUST threshold)
+- **H7 — Cardano↔Midnight reconciliation cron** (new `cron/class-midnight-reconciliation.php`, `class-memory-mint.php`)
+  - New WP Cron job runs every 20 minutes, queries `midnight_status = 'failed'` keepsakes, and retries Midnight mint with exponential backoff (20m → 1h → 4h → 24h → 48h); after 5 failures sets `midnight_status = 'failed_permanent'`
+  - Self-custody users (mnemonic deleted) are skipped — they complete via DApp Connector
+  - Retry state stored in `wp_options` per keepsake (`memorymint_mid_retry_{id}`)
+- **H8 — Rate limiting on Midnight mint endpoint** (`mint.ts`, `package.json`)
+  - Added `express-rate-limit@^7.5.0`; 1 request/30s per IP on `POST /api/v1/midnight/mint`
+
+---
+
+## [1.1.23] - 2026-05-10
+
+### Security (Critical fixes — C1 through C4)
+
+- **C1 — wallet_connect: CIP-8 challenge-response auth** (`class-auth-api.php`, `class-cose-verifier.php`, `LoginModal.tsx`)
+  - New `GET memorymint/v1/auth/wallet-nonce?address=<hex>` endpoint issues a 16-byte random nonce (WP transient, 2-min TTL, single-use)
+  - `POST wallet-connect` now requires `raw_address`, `signature` (COSE_Sign1 hex), and `key` (COSE_Key hex)
+  - New `CoseVerifier` PHP helper: minimal CBOR decoder + COSE_Sign1 parser; verifies Ed25519 signature via sodium extension; checks address in protected header and nonce payload before issuing any auth token
+  - Frontend (`LoginModal.tsx`): fetches nonce, calls `wallet.signData(rawAddress, nonce)`, includes result in wallet-connect request
+  - Eliminates the auth bypass where any address string could be used to authenticate as any user
+
+- **C2 — AES-256-GCM + PBKDF2 for all key storage** (`class-encryption.php`)
+  - Cipher changed from `aes-256-cbc` to `aes-256-gcm`; all new ciphertext carries a 16-byte GCM auth tag (tamper-evident)
+  - KDF changed from raw `hash('sha256', ...)` to `hash_pbkdf2('sha256', ikm, $salt, 100_000, 32, true)` with a per-record 16-byte random salt
+  - New format: `v2:<base64(salt+iv+tag+ciphertext)>`; old v1 CBC format still decryptable for backward-compat migration
+
+- **C3 — proveContentAuthentic: correct private witness** (`midnight/service/src/routes/prove.ts`)
+  - `content_authentic` ProveBody schema now requires `contentHash` (64-char hex SHA-256)
+  - `callCircuit` receives `{ secretContentHash: contentHash }` as `privateStateUpdates` instead of the previous empty `{}`, so the `secretContentHash()` witness returns the correct value and the proof can succeed
+  - Note: contract must still be recompiled in WSL2 (`npm run compile` in `midnight/`) to generate the missing `proveContentAuthentic` prover/verifier key pair
+
+- **C4 — NEXT_PUBLIC_ANVIL_API_KEY removed from browser bundle** (`frontend/lib/cardano.ts`)
+  - Deleted dead `mintMemoryNFT`, `getUserMemories`, and `verifyTransaction` functions (mint goes through WordPress API)
+  - Removed `Memory` interface (only used by deleted functions)
+  - Removed `const ANVIL_API_KEY = process.env.NEXT_PUBLIC_ANVIL_API_KEY` — key no longer baked into client JS
+
+---
+
 ## [1.1.22] - 2026-04-19
 
 ### Added

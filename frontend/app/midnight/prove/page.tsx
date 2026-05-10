@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useMidnightJob } from '@/lib/useMidnightJob'
 
 type ProofType = 'ownership' | 'content_authentic' | 'created_before' | 'contains_tag'
 
@@ -22,30 +23,34 @@ interface ProofResult {
 }
 
 const PROOF_OPTIONS: { value: ProofType; label: string; description: string; icon: string }[] = [
-  { value: 'ownership',        label: 'Ownership',          icon: '🔑', description: 'Prove this memory belongs to you without revealing your identity.' },
-  { value: 'content_authentic',label: 'Content Authentic',  icon: '✅', description: 'Prove the content has never been altered since it was minted.' },
-  { value: 'created_before',   label: 'Created Before',     icon: '📅', description: 'Prove this memory existed before a specific date.' },
-  { value: 'contains_tag',     label: 'Contains Tag',       icon: '🏷', description: 'Prove this memory has at least one person tag without revealing who.' },
+  { value: 'ownership',         label: 'Ownership',         icon: '🔑', description: 'Prove this memory belongs to you without revealing your identity.' },
+  { value: 'content_authentic', label: 'Content Authentic', icon: '✅', description: 'Prove the content has never been altered since it was minted.' },
+  { value: 'created_before',    label: 'Created Before',    icon: '📅', description: 'Prove this memory existed before a specific date.' },
+  { value: 'contains_tag',      label: 'Contains Tag',      icon: '🏷', description: 'Prove this memory has at least one person tag without revealing who.' },
 ]
+
+const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
 
 function ProvePageInner() {
   const router = useRouter()
   const params = useSearchParams()
   const keepsakeId = params.get('id')
 
-  const [keepsake, setKeepsake] = useState<Keepsake | null>(null)
-  const [loadError, setLoadError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
+  const [keepsake, setKeepsake]     = useState<Keepsake | null>(null)
+  const [loadError, setLoadError]   = useState('')
+  const [isLoading, setIsLoading]   = useState(true)
 
-  const [proofType, setProofType] = useState<ProofType>('ownership')
+  const [proofType, setProofType]   = useState<ProofType>('ownership')
   const [cutoffDate, setCutoffDate] = useState('')
-  const [isProving, setIsProving] = useState(false)
-  const [result, setResult] = useState<ProofResult | null>(null)
+  const [isProving, setIsProving]   = useState(false)
+  const [result, setResult]         = useState<ProofResult | null>(null)
   const [proofError, setProofError] = useState('')
   const [comingSoon, setComingSoon] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied]         = useState(false)
 
-  const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+  // Async job polling
+  const [jobId, setJobId] = useState<string | null>(null)
+  const jobStatus = useMidnightJob(apiBase, jobId)
 
   useEffect(() => {
     const token = sessionStorage.getItem('mmToken')
@@ -62,7 +67,21 @@ function ProvePageInner() {
       })
       .catch(() => setLoadError('Network error. Please try again.'))
       .finally(() => setIsLoading(false))
-  }, [keepsakeId])
+  }, [keepsakeId, router])
+
+  // React to job completion
+  useEffect(() => {
+    if (!jobStatus.status) return
+    if (jobStatus.status === 'done' && jobStatus.result) {
+      setResult(jobStatus.result as unknown as ProofResult)
+      setIsProving(false)
+      setJobId(null)
+    } else if (jobStatus.status === 'failed') {
+      setProofError(jobStatus.error || 'Proof generation failed.')
+      setIsProving(false)
+      setJobId(null)
+    }
+  }, [jobStatus])
 
   async function handleProve() {
     const token = sessionStorage.getItem('mmToken')
@@ -79,22 +98,36 @@ function ProvePageInner() {
     }
 
     try {
-      const res = await fetch(`${apiBase}/memorymint/v1/midnight/${keepsake.id}/prove`, {
-        method: 'POST',
+      const res  = await fetch(`${apiBase}/memorymint/v1/midnight/${keepsake.id}/prove`, {
+        method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body:    JSON.stringify(body),
       })
       const data = await res.json()
 
       if (res.status === 404 || data.code === 'rest_no_route' || data.code === 'midnight_not_configured') {
         setComingSoon(true)
+        setIsProving(false)
         return
       }
-      if (!data.success) { setProofError(data.error || 'Proof generation failed.'); return }
+
+      // Async path — job queued, keep isProving=true and start polling
+      if (res.status === 202 && data.queued) {
+        setJobId(data.job_id)
+        return
+      }
+
+      if (!data.success) {
+        setProofError(data.error || 'Proof generation failed.')
+        setIsProving(false)
+        return
+      }
+
+      // Synchronous path (fallback if API ever returns 200 directly)
       setResult(data.proof)
+      setIsProving(false)
     } catch {
       setProofError('Network error. Please try again.')
-    } finally {
       setIsProving(false)
     }
   }
@@ -143,6 +176,22 @@ function ProvePageInner() {
           <div className="text-3xl mb-2">🚀</div>
           <p className="font-semibold text-indigo-800 mb-1">Midnight proofs are coming soon</p>
           <p className="text-indigo-600 text-sm">The Midnight sidecar is not yet deployed. Check back once the sidecar is live.</p>
+        </motion.div>
+      )}
+
+      {/* Polling progress banner */}
+      {jobId && jobStatus.status && jobStatus.status !== 'done' && jobStatus.status !== 'failed' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="bg-purple-50 border border-purple-200 rounded-2xl p-5 mb-6 flex items-start gap-4"
+        >
+          <div className="text-2xl animate-spin mt-0.5">⚙️</div>
+          <div>
+            <p className="font-semibold text-purple-900">Generating your zero-knowledge proof…</p>
+            <p className="text-purple-700 text-sm mt-1">
+              This takes up to 15 minutes while the Midnight network processes your request.
+              Keep this tab open — the result will appear automatically.
+            </p>
+          </div>
         </motion.div>
       )}
 
@@ -198,6 +247,7 @@ function ProvePageInner() {
                 <input type="radio" name="proofType" value={opt.value}
                   checked={proofType === opt.value}
                   onChange={() => setProofType(opt.value)}
+                  aria-label={opt.label}
                   className="mt-1 accent-[#ffbd59]"
                 />
                 <div>

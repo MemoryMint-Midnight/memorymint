@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useMidnightJob } from '@/lib/useMidnightJob'
 
 interface Keepsake {
   id: number
@@ -12,22 +13,26 @@ interface Keepsake {
   midnight_status: string
 }
 
+const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+
 function RevokePageInner() {
   const router = useRouter()
   const params = useSearchParams()
   const keepsakeId = params.get('id')
 
-  const [keepsake, setKeepsake] = useState<Keepsake | null>(null)
-  const [loadError, setLoadError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
+  const [keepsake, setKeepsake]     = useState<Keepsake | null>(null)
+  const [loadError, setLoadError]   = useState('')
+  const [isLoading, setIsLoading]   = useState(true)
 
   const [confirmText, setConfirmText] = useState('')
-  const [isRevoking, setIsRevoking] = useState(false)
+  const [isRevoking, setIsRevoking]   = useState(false)
   const [revokeError, setRevokeError] = useState('')
-  const [comingSoon, setComingSoon] = useState(false)
-  const [done, setDone] = useState(false)
+  const [comingSoon, setComingSoon]   = useState(false)
+  const [done, setDone]               = useState(false)
 
-  const apiBase = (process.env.NEXT_PUBLIC_WORDPRESS_API_URL || '').replace('/wp/v2', '')
+  // Async job polling
+  const [jobId, setJobId] = useState<string | null>(null)
+  const jobStatus = useMidnightJob(apiBase, jobId)
 
   useEffect(() => {
     const token = sessionStorage.getItem('mmToken')
@@ -44,7 +49,21 @@ function RevokePageInner() {
       })
       .catch(() => setLoadError('Network error. Please try again.'))
       .finally(() => setIsLoading(false))
-  }, [keepsakeId])
+  }, [keepsakeId, router])
+
+  // React to job completion
+  useEffect(() => {
+    if (!jobStatus.status) return
+    if (jobStatus.status === 'done') {
+      setIsRevoking(false)
+      setJobId(null)
+      setDone(true)
+    } else if (jobStatus.status === 'failed') {
+      setRevokeError(jobStatus.error || 'Revoke failed.')
+      setIsRevoking(false)
+      setJobId(null)
+    }
+  }, [jobStatus])
 
   async function handleRevoke() {
     const token = sessionStorage.getItem('mmToken')
@@ -55,21 +74,35 @@ function RevokePageInner() {
     setComingSoon(false)
 
     try {
-      const res = await fetch(`${apiBase}/memorymint/v1/midnight/${keepsake.id}/revoke`, {
-        method: 'POST',
+      const res  = await fetch(`${apiBase}/memorymint/v1/midnight/${keepsake.id}/revoke`, {
+        method:  'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
       const data = await res.json()
 
       if (res.status === 404 || data.code === 'rest_no_route' || data.code === 'midnight_not_configured') {
         setComingSoon(true)
+        setIsRevoking(false)
         return
       }
-      if (!data.success) { setRevokeError(data.error || 'Revoke failed.'); return }
+
+      // Async path — job queued, keep isRevoking=true and start polling
+      if (res.status === 202 && data.queued) {
+        setJobId(data.job_id)
+        return
+      }
+
+      if (!data.success) {
+        setRevokeError(data.error || 'Revoke failed.')
+        setIsRevoking(false)
+        return
+      }
+
+      // Synchronous fallback
+      setIsRevoking(false)
       setDone(true)
     } catch {
       setRevokeError('Network error. Please try again.')
-    } finally {
       setIsRevoking(false)
     }
   }
@@ -132,6 +165,22 @@ function RevokePageInner() {
         </motion.div>
       )}
 
+      {/* Polling progress banner */}
+      {jobId && jobStatus.status && jobStatus.status !== 'done' && jobStatus.status !== 'failed' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="bg-red-50 border border-red-200 rounded-2xl p-5 mb-6 flex items-start gap-4"
+        >
+          <div className="text-2xl animate-spin mt-0.5">⚙️</div>
+          <div>
+            <p className="font-semibold text-red-900">Revocation in progress…</p>
+            <p className="text-red-700 text-sm mt-1">
+              The Midnight network is processing your revocation. This may take up to 15 minutes.
+              Keep this tab open — the page will update automatically when complete.
+            </p>
+          </div>
+        </motion.div>
+      )}
+
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-5 mb-6">
           <p className="font-semibold text-red-900 mb-2">⛔ This action cannot be undone</p>
@@ -144,12 +193,13 @@ function RevokePageInner() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg p-8">
-          <p className="text-gray-700 text-sm mb-4">
+          <label htmlFor="revoke-confirm" className="block text-gray-700 text-sm mb-4">
             Type <strong>REVOKE</strong> to confirm you want to permanently revoke the Midnight record for{' '}
             <span className="font-semibold">{keepsake?.title}</span>:
-          </p>
+          </label>
 
           <input
+            id="revoke-confirm"
             type="text"
             value={confirmText}
             onChange={e => { setConfirmText(e.target.value.toUpperCase()); setRevokeError('') }}

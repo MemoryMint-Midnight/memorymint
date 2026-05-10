@@ -6,8 +6,10 @@
  *
  * Body (JSON):
  * {
- *   userMnemonic:     string,   // current owner's BIP-39 mnemonic
- *   newOwnerMnemonic: string,   // new owner's BIP-39 mnemonic — commitment computed server-side
+ *   userMnemonic:      string,   // current owner's BIP-39 mnemonic
+ *   newOwnerSecretKey: string,   // new owner's 32-byte Midnight sk as 64-char hex
+ *                                // derived by WordPress: PBKDF2-SHA512(mnemonic, 'mnemonic', 2048, 64) → HMAC-SHA256 w/ domain
+ *                                // The raw mnemonic never leaves WordPress.
  * }
  *
  * Response:  { txHash: string }
@@ -17,14 +19,16 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
+import { Buffer } from 'buffer';
 import { callCircuit } from '../midnight/contract.js';
-import { computeOwnerCommitment } from '../midnight/provider.js';
+import { commitmentFromSecretKey } from '../midnight/provider.js';
+import { mnemonicSchema } from '../lib/schemas.js';
 
 export const transferRouter = Router({ mergeParams: true });
 
 const TransferBody = z.object({
-  userMnemonic:     z.string().min(1, 'userMnemonic is required'),
-  newOwnerMnemonic: z.string().min(1, 'newOwnerMnemonic is required'),
+  userMnemonic:      mnemonicSchema,
+  newOwnerSecretKey: z.string().regex(/^[0-9a-f]{64}$/i, 'newOwnerSecretKey must be 64-char hex (32 bytes)'),
 });
 
 transferRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -36,10 +40,10 @@ transferRouter.post('/', async (req: Request, res: Response, next: NextFunction)
     return;
   }
 
-  const { userMnemonic, newOwnerMnemonic } = parsed.data;
+  const { userMnemonic, newOwnerSecretKey } = parsed.data;
 
   try {
-    const newOwnerCommit = computeOwnerCommitment(newOwnerMnemonic);
+    const newOwnerCommit = commitmentFromSecretKey(Buffer.from(newOwnerSecretKey, 'hex'));
     const txHash = await callCircuit(
       contractAddress,
       'transferMemory',

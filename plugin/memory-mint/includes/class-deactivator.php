@@ -9,6 +9,8 @@ class Deactivator {
 
     public function deactivate() {
         wp_clear_scheduled_hook('memorymint_wallet_balance_check');
+        wp_clear_scheduled_hook('memorymint_midnight_reconciliation');
+        wp_clear_scheduled_hook('memorymint_run_midn_job');
         flush_rewrite_rules();
 
         // Only drop tables if cleanup option is enabled

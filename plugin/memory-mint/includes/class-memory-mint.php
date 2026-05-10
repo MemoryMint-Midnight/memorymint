@@ -42,6 +42,20 @@ class MemoryMint {
             wp_schedule_event(time(), 'twicedaily', 'memorymint_wallet_balance_check');
         }
         add_action('memorymint_wallet_balance_check', [$this, 'check_policy_wallet_balance']);
+
+        // Custom 20-minute cron interval for Midnight reconciliation
+        add_filter('cron_schedules', [$this, 'add_cron_intervals']);
+
+        // Midnight reconciliation cron — retries failed Midnight mints with exponential backoff
+        if (!wp_next_scheduled('memorymint_midnight_reconciliation')) {
+            wp_schedule_event(time(), 'every_20_minutes', 'memorymint_midnight_reconciliation');
+        }
+        add_action('memorymint_midnight_reconciliation', [$this, 'run_midnight_reconciliation']);
+
+        // Async Midnight job runner — fired as a single event per queued job
+        add_action('memorymint_run_midn_job', function (string $job_id): void {
+            Cron\MidnightJobs::run($job_id);
+        });
     }
 
     public function register_roles() {
@@ -256,6 +270,18 @@ class MemoryMint {
             wp_mail($alert_email, $subject, $message);
             set_transient('memorymint_balance_warning_sent', true, 24 * HOUR_IN_SECONDS);
         }
+    }
+
+    public function add_cron_intervals(array $schedules): array {
+        $schedules['every_20_minutes'] = [
+            'interval' => 20 * MINUTE_IN_SECONDS,
+            'display'  => __('Every 20 Minutes', 'memory-mint'),
+        ];
+        return $schedules;
+    }
+
+    public function run_midnight_reconciliation(): void {
+        (new Cron\MidnightReconciliation())->run();
     }
 
     /**
