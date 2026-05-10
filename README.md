@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img src="assets/logo.png" alt="MemoryMint" width="320" />
 </p>
 
@@ -11,7 +11,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Cardano-mainnet-blue?logo=cardano" alt="Cardano" />
   <img src="https://img.shields.io/badge/Midnight-preprod-purple" alt="Midnight" />
-  <img src="https://img.shields.io/badge/version-1.1.28-green" alt="Version" />
   <img src="https://img.shields.io/badge/status-private%20beta-orange" alt="Status" />
 </p>
 
@@ -612,9 +611,9 @@ The link is intentionally one-way: Midnight knows about Cardano, but Cardano has
 
 ### Midnight Layer
 - Compact smart contract language (compactc v0.30.0)
-- `@midnight-ntwrk/midnight-js-*` SDK packages (v4.0.4)
-- `@midnight-ntwrk/compact-runtime` (v0.15.0)
-- `@midnight-ntwrk/ledger-v8` (v8.0.3)
+- `@midnight-ntwrk/midnight-js-*` SDK packages
+- `@midnight-ntwrk/compact-runtime`
+- `@midnight-ntwrk/ledger-v8`
 - Node.js 22 / Express sidecar service
 - Local Docker proof server (`midnightntwrk/proof-server:8.0.3`, port 6300)
 - Midnight preprod / mainnet
@@ -703,43 +702,40 @@ Users pay in fiat (Stripe or similar). Zero crypto friction — no wallet requir
 | Component | Status |
 |---|---|
 | WordPress plugin — auth (email OTP + CIP-30) | ✅ Complete |
-| WordPress plugin — CIP-8 challenge-response wallet auth (nonce + Ed25519 verify) | ✅ Complete (v1.1.23) |
-| WordPress plugin — AES-256-GCM + PBKDF2 key storage | ✅ Complete (v1.1.23) |
+| WordPress plugin — CIP-8 challenge-response wallet auth (nonce + Ed25519 verify) | ✅ Complete |
+| WordPress plugin — AES-256-GCM + PBKDF2 key storage | ✅ Complete |
 | WordPress plugin — custodial wallet generation | ✅ Complete |
 | WordPress plugin — Cardano minting (both paths) | ✅ Complete |
-| WordPress plugin — custodial mint balance + fee_payer_address fix | ✅ Complete (v1.1.27) |
+| WordPress plugin — custodial mint balance + fee_payer_address fix | ✅ Complete |
 | WordPress plugin — keepsake CRUD | ✅ Complete |
 | WordPress plugin — gallery + sharing | ✅ Complete |
 | WordPress plugin — Midnight sidecar integration | ✅ Complete |
-| WordPress plugin — Midnight async job queue (MidnightJobs cron class) | ✅ Complete (v1.1.27) |
-| WordPress plugin — Cardano↔Midnight reconciliation cron (exponential backoff) | ✅ Complete (v1.1.24) |
-| WordPress plugin — seed backup confirmation flag | ✅ Complete (v1.1.19) |
-| WordPress plugin — `prove`/`transfer`/`revoke` proxy endpoints (async 202) | ✅ Complete (v1.1.27) |
-| WordPress plugin — `mint_on_midnight` queued endpoint | ✅ Complete (v1.1.27) |
-| WordPress plugin — custodial wallet generation bug fix | ✅ Complete (v1.1.20) |
-| WordPress plugin — OTP step-up auth on seed phrase retrieval | ✅ Complete (v1.1.25) |
-| Security audit — 25 findings (C1–C4, H1–H8, M1–M8, L1–L5) | ✅ All resolved (v1.1.23–v1.1.26) |
+| WordPress plugin — Midnight async job queue (MidnightJobs cron class) | ✅ Complete |
+| WordPress plugin — Cardano↔Midnight reconciliation cron (exponential backoff) | ✅ Complete |
+| WordPress plugin — seed backup confirmation flag | ✅ Complete |
+| WordPress plugin — `prove`/`transfer`/`revoke` proxy endpoints (async 202) | ✅ Complete |
+| WordPress plugin — `mint_on_midnight` queued endpoint | ✅ Complete |
+| WordPress plugin — OTP step-up auth on seed phrase retrieval | ✅ Complete |
+| Security audit — 25 findings (C1–C4, H1–H8, M1–M8, L1–L5) | ✅ All resolved |
 | Next.js frontend — mint, gallery, account, share | ✅ Complete |
-| Next.js frontend — `SeedPhraseModal` (seed display + verify + confirm) | ✅ Complete (v1.1.19) |
-| Next.js frontend — seed backup confirmation step | ✅ Complete (v1.1.19) |
-| Next.js frontend — wallet-only login gate | ✅ Complete (v1.1.21) |
-| Next.js frontend — CIP-30 + Midnight DApp Connector | 🔲 Planned |
-| Next.js frontend — browser-side content encryption (AES-GCM, CEK from signData) | ✅ Complete (v1.1.17) |
-| Next.js frontend — browser-side content decryption (gallery detail modal) | ✅ Complete (v1.1.17) |
-| Next.js frontend — blurred thumbnail generation | 🔲 Planned |
-| Next.js frontend — `app/midnight/prove` page (async polling via useMidnightJob) | ✅ Complete (v1.1.28) |
-| Next.js frontend — `app/midnight/transfer` page (async polling via useMidnightJob) | ✅ Complete (v1.1.28) |
-| Next.js frontend — `app/midnight/revoke` page (async polling via useMidnightJob) | ✅ Complete (v1.1.28) |
-| Next.js frontend — auto-queue Midnight registration after Cardano mint | ✅ Complete (v1.1.28) |
-| Compact contract — 8 circuits, smoke tested on preprod | ✅ Complete (2026-04-18) |
+| Next.js frontend — `SeedPhraseModal` (seed display + verify + confirm) | ✅ Complete |
+| Next.js frontend — seed backup confirmation step | ✅ Complete |
+| Next.js frontend — wallet-only login gate | ✅ Complete |
+| Next.js frontend — browser-side content encryption (AES-GCM, CEK from signData) | ✅ Complete |
+| Next.js frontend — browser-side content decryption (gallery detail modal) | ✅ Complete |
+| Next.js frontend — `app/midnight/prove` page (async polling via useMidnightJob) | ✅ Complete |
+| Next.js frontend — `app/midnight/transfer` page (async polling via useMidnightJob) | ✅ Complete |
+| Next.js frontend — `app/midnight/revoke` page (async polling via useMidnightJob) | ✅ Complete |
+| Next.js frontend — auto-queue Midnight registration after Cardano mint | ✅ Complete |
+| Compact contract — 8 circuits, smoke tested on preprod | ✅ Complete |
 | Midnight sidecar — all routes | ✅ Complete |
-| Midnight sidecar — structured pino logging, mnemonic schema, write mutex | ✅ Complete (v1.1.25) |
-| Midnight sidecar — filePrivateStateProvider export/import | ✅ Complete (v1.1.25) |
-| Private Keepsake — Cardano mint + auto Midnight registration | ✅ Complete (v1.1.28) |
+| Midnight sidecar — structured pino logging, mnemonic schema, write mutex | ✅ Complete |
+| Midnight sidecar — filePrivateStateProvider export/import | ✅ Complete |
+| Private Keepsake — Cardano mint + auto Midnight registration | ✅ Complete |
 | Content re-encryption on transfer | 🔲 Planned (post-launch) |
 | Next.js frontend — blurred thumbnail generation | 🔲 Blocked (needs IPFS on VPS) |
 | Next.js frontend — CIP-30 + Midnight DApp Connector | 🔲 Blocked (Midnight mainnet) |
-| VPS — deploy plugin v1.1.28 + run DB migrations | 🔲 Blocked (waiting for SSH from PB) |
+| VPS — deploy plugin + run DB migrations | 🔲 Blocked (waiting for SSH from PB) |
 | VPS — Docker proof server (port 6300) + Midnight sidecar + PM2 | 🔲 Blocked (waiting for SSH from PB) |
 | VPS — system cron for Midnight jobs (DISABLE_WP_CRON) | 🔲 Blocked (waiting for SSH from PB) |
 | VPS — self-hosted IPFS node + pin placeholder thumbnail | 🔲 Blocked (waiting for SSH from PB) |
