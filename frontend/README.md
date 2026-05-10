@@ -1,90 +1,105 @@
-# Memory Mint - Frontend
+# Memory Mint — Frontend
 
-Modern Next.js frontend for Memory Mint - A blockchain-based memory preservation platform.
+Next.js 15 frontend for Memory Mint — a blockchain-based memory preservation platform built on Cardano and Midnight.
 
 ## Tech Stack
 
-- **Next.js 15** - React framework with App Router
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Utility-first styling
-- **Framer Motion** - Smooth animations
-- **Cardano** - Blockchain integration via Anvil API
-- **WordPress REST API** - Headless CMS
+- **Next.js 15** — React framework with App Router
+- **TypeScript** — Type safety throughout
+- **Tailwind CSS** — Utility-first styling
+- **Framer Motion** — Animations
+- **Cardano** — NFT minting via WordPress/Anvil API
+- **Midnight** — Privacy proofs via sidecar service
+- **WordPress REST API** — Headless backend
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ installed
-- Cardano wallet (Nami, Eternl, or Lace) for testing
-- WordPress backend running
+- Node.js 18+
+- WordPress backend running (see root `SETUP.md`)
+- Cardano wallet extension (Nami, Vespr, Eternl, Begin, or Lace) for wallet-user testing
 
 ### Installation
 
 ```bash
-# Install dependencies
 npm install
 
-# Set up environment variables
-# Copy .env.local and update with your values
+# Copy and configure environment
+cp .env.example .env.local
+# Edit .env.local — set NEXT_PUBLIC_WORDPRESS_API_URL
 
-# Run development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the site.
+Open [http://localhost:3000](http://localhost:3000).
 
 ## Project Structure
 
 ```
 frontend/
-├── app/                    # Next.js App Router pages
-│   ├── layout.tsx         # Root layout with Header/Footer
-│   ├── page.tsx           # Homepage
-│   └── globals.css        # Global styles
-├── components/            # React components
-│   ├── Header.tsx         # Navigation header
-│   ├── Footer.tsx         # Footer
-│   └── WalletConnect.tsx  # Cardano wallet connection
-├── lib/                   # Utilities and integrations
-│   ├── cardano.ts         # Cardano blockchain functions
-│   └── wordpress.ts       # WordPress API integration
-└── public/                # Static assets
+├── app/                          # Next.js App Router
+│   ├── layout.tsx               # Root layout (Header/Footer)
+│   ├── page.tsx                 # Homepage
+│   ├── mint/page.tsx            # Mint flow (upload → pay → confirm)
+│   ├── gallery/page.tsx         # User's minted keepsake gallery
+│   ├── memories/page.tsx        # Public memory feed
+│   ├── account/page.tsx         # Account settings
+│   ├── midnight/
+│   │   ├── page.tsx             # Midnight feature overview
+│   │   ├── prove/page.tsx       # Generate zero-knowledge proof
+│   │   ├── transfer/page.tsx    # Transfer Midnight ownership
+│   │   └── revoke/page.tsx      # Revoke Midnight record
+│   ├── share/                   # Shared keepsake viewer
+│   ├── guide/                   # User guide
+│   └── [faq|privacy|terms]/    # Static pages
+├── components/                  # Shared React components
+│   ├── Header.tsx
+│   ├── Footer.tsx
+│   └── LoginModal.tsx           # Email OTP + CIP-8 wallet auth
+├── lib/                         # Utilities
+│   ├── cardano.ts               # CIP-30 wallet helpers (connect, sign, encrypt)
+│   └── useMidnightJob.ts        # React hook — polls async Midnight job status
+└── public/                      # Static assets
 ```
-
-## Features
-
-### Blockchain Integration
-
-- Connect to Cardano wallets (Nami, Eternl, Lace)
-- Mint memories as NFTs on testnet
-- View minted memories
-- Transaction verification
-
-### WordPress Integration
-
-- Fetch posts and pages from WordPress REST API
-- Display WordPress content in modern UI
-- Search functionality
-- Media optimization
 
 ## Environment Variables
 
 ```env
+# WordPress REST API base URL (include /wp/v2)
+NEXT_PUBLIC_WORDPRESS_API_URL=http://memorymint.local/wp-json/wp/v2
+
+# Cardano network: "preprod" or "mainnet"
 NEXT_PUBLIC_CARDANO_NETWORK=preprod
-NEXT_PUBLIC_ANVIL_API_KEY=your_anvil_api_key
-NEXT_PUBLIC_WORDPRESS_API_URL=http://localhost/wp-json/wp/v2
 ```
+
+> **Important:** The Anvil API key lives in the WordPress plugin settings, not here.
+> Never add `NEXT_PUBLIC_ANVIL_API_KEY` — it would be exposed in the browser bundle.
 
 ## Available Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+- `npm run dev` — Start development server
+- `npm run build` — Build for production
+- `npm run start` — Start production server
+- `npm run lint` — Run ESLint
+
+## Key Features
+
+### Cardano Minting
+- Connect browser wallets (Nami, Vespr, Eternl, Begin, Lace) via CIP-30
+- CIP-8 challenge-response authentication — signature verified server-side
+- Batch mint up to 5 keepsakes per transaction
+- Custodial minting for email users (policy wallet funded by operator)
+
+### Midnight Privacy
+- Private keepsakes encrypted client-side before upload (AES-256-GCM, CEK from CIP-30 `signData`)
+- Midnight registration queued automatically after Cardano mint confirms
+- Zero-knowledge proof generation (ownership, content authentic, created-before, contains-tag)
+- Ownership transfer and revocation — all via async job polling (`useMidnightJob`)
 
 ## Learn More
 
 - [Next.js Documentation](https://nextjs.org/docs)
-- [Cardano Documentation](https://docs.cardano.org/)
-- [WordPress REST API](https://developer.wordpress.org/rest-api/)
+- [Cardano CIP-30](https://github.com/cardano-foundation/CIPs/blob/master/CIP-0030/)
+- [Midnight Network](https://midnight.network)
+- [Anvil API](https://docs.ada-anvil.app)

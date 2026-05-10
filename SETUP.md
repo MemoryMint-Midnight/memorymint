@@ -196,9 +196,10 @@ or a self-managed VPS with Nginx + PHP-FPM.
 |----------|-------|
 | `NEXT_PUBLIC_WORDPRESS_API_URL` | `https://your-wp-domain.com/wp-json/wp/v2` |
 | `NEXT_PUBLIC_CARDANO_NETWORK` | `mainnet` |
-| `NEXT_PUBLIC_ANVIL_API_KEY` | Your mainnet Anvil key |
 | `COMING_SOON` | `false` |
 | `COMING_SOON_BYPASS` | `mmpreview` |
+
+> **Note:** The Anvil API key is stored in the WordPress plugin settings, not the frontend environment. Do not add `NEXT_PUBLIC_ANVIL_API_KEY` — it would be exposed in the browser bundle.
 
 5. Click **Deploy** â€” Vercel builds and deploys automatically
 6. Assign your custom domain in Vercel â†’ Project â†’ Settings â†’ Domains
@@ -255,19 +256,81 @@ SSL via Let's Encrypt: `sudo certbot --nginx -d your-frontend-domain.com`
 
 ---
 
-### 2d â€” Post-Deployment Checklist
+### 2d — Midnight Sidecar (Required for Private Keepsakes)
 
+The Midnight sidecar is a separate Node.js service that handles privacy proofs. It must run alongside WordPress for private keepsake minting, proving, transferring, and revoking.
+
+**Requirements:**
+- Node.js 18+
+- Docker (to run the Midnight proof server)
+- A dedicated Midnight testnet/mainnet wallet with DUST tokens
+
+**Setup:**
+```bash
+cd midnight/service
+cp ../.env.example .env
+nano .env   # fill in all values (see midnight/.env.example)
+npm install
+npm run build
+```
+
+Start the Midnight proof server (Docker):
+```bash
+docker run -d --name proof-server -p 6300:6300 midnightntwrk/proof-server:8.0.3
+```
+
+Start the sidecar:
+```bash
+# With PM2 (recommended for production)
+pm2 start npm --name “memorymint-midnight” -- start
+pm2 save
+
+# Or directly
+npm start
+```
+
+**System cron for async Midnight jobs (PRODUCTION REQUIRED):**
+
+Add to `/etc/cron.d/memorymint`:
+```
+* * * * * www-data wp cron event run --due-now --path=/var/www/html >> /var/log/wp-cron.log 2>&1
+```
+
+And add to `wp-config.php`:
+```php
+define( ‘DISABLE_WP_CRON’, true );
+```
+
+This prevents Nginx’s `fastcgi_read_timeout` (60s) from killing Midnight operations that take 8–15 minutes. See `config-templates/wp-config-additions.php` for the full snippet.
+
+---
+
+### 2e — Post-Deployment Checklist
+
+**WordPress & Frontend:**
 - [ ] HTTPS works on both WordPress and frontend domains
-- [ ] Set WordPress Home URL and Site URL to `https://` in WP Admin â†’ Settings â†’ General
-- [ ] Memory Mint â†’ Settings â†’ Production Frontend URL is set to your `https://` frontend domain
-- [ ] Anvil API key is set to the **mainnet** key
+- [ ] Set WordPress Home URL and Site URL to `https://` in WP Admin → Settings → General
+- [ ] Memory Mint → Settings → Production Frontend URL is set to your `https://` frontend domain
+- [ ] Anvil API key is set to the **mainnet** key (in WordPress plugin settings, not frontend env)
 - [ ] Network is set to **Mainnet** in Memory Mint Settings
-- [ ] Policy wallet is generated and funded (â‰¥20 ADA)
+- [ ] PHP `sodium` extension available (`php -m | grep sodium`) — required for wallet auth
+- [ ] Policy wallet is generated and funded (≥20 ADA)
 - [ ] Install an SMTP plugin (WP Mail SMTP) and configure a transactional mailer
-- [ ] Memory Mint â†’ Settings â†’ Send Test Email confirms mail delivery
-- [ ] Do one end-to-end test mint on mainnet (email user + wallet user)
+- [ ] Memory Mint → Settings → Send Test Email confirms mail delivery
+- [ ] `DISABLE_WP_CRON=true` in wp-config.php and system cron running (see 2d above)
+
+**Midnight sidecar:**
+- [ ] Midnight proof server Docker container running on port 6300
+- [ ] Sidecar running and healthy: `curl https://your-midnight-domain.com/health`
+- [ ] `dustBalance` in health response is non-zero (sidecar wallet funded with DUST)
+- [ ] `MIDNIGHT_API_SECRET` matches between sidecar `.env` and WordPress plugin settings
+- [ ] `CORS_ALLOWED_ORIGINS` set to your frontend domain in sidecar `.env`
+
+**End-to-end tests:**
+- [ ] Do one mint on mainnet — email user + wallet user
 - [ ] Confirm NFT appears on https://cardanoscan.io
 - [ ] Confirm share invitation email arrives with correct `https://` links
+- [ ] Mint one private keepsake and confirm Midnight status shows “minted” in gallery within 15 min
 
 ---
 
@@ -277,24 +340,57 @@ SSL via Let's Encrypt: `sudo certbot --nginx -d your-frontend-domain.com`
 
 Base URL: `{WORDPRESS_URL}/wp-json/memorymint/v1/`
 
+**Auth**
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/auth/wallet-nonce` | Get one-time nonce for CIP-8 wallet auth |
+| POST | `/auth/wallet-connect` | Authenticate wallet user (requires CIP-8 signature) |
 | POST | `/auth/register` | Register email user |
 | POST | `/auth/verify-otp` | Verify OTP and get auth token |
-| POST | `/auth/wallet-connect` | Authenticate wallet user |
 | POST | `/auth/refresh` | Refresh auth token |
 | POST | `/auth/logout` | Invalidate token |
 | DELETE | `/auth/delete-account` | Delete account |
+| POST | `/auth/seed-phrase-otp` | Send OTP for seed phrase step-up auth |
+| GET | `/auth/seed-phrase` | Retrieve mnemonic (requires `?otp=` param) |
+
+**Mint**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | POST | `/upload` | Upload media file |
 | POST | `/keepsakes` | Create keepsake record |
 | GET | `/keepsakes` | List user's keepsakes |
-| POST | `/mint` | Build mint transaction |
-| POST | `/mint/submit` | Submit signed transaction |
-| GET | `/mint/status/{tx_hash}` | Poll transaction status |
+| GET | `/keepsakes/{id}` | Get single keepsake |
+| POST | `/mint/build` | Build unsigned Cardano transaction |
+| POST | `/mint/sign` | Submit wallet-signed transaction |
+| POST | `/mint/custodial-sign` | Submit custodial (email user) transaction |
+| POST | `/mint/retry/{id}` | Reset a failed keepsake for retry |
+| GET | `/mint/status/{tx_hash}` | Poll Cardano transaction status |
+| GET | `/mint/price` | Get current service fees + ADA price |
+| POST | `/mint/midnight/{id}` | Queue Midnight registration after Cardano mint |
+
+**Gallery & Sharing**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/gallery` | Get user's minted gallery |
 | GET | `/memories` | Get public memory feed |
 | POST | `/share` | Create share token |
 | GET | `/share/{token}` | Get shared keepsake |
+| GET | `/albums` | List user's albums |
+| POST | `/albums` | Create album |
+| POST | `/albums/{id}/keepsakes` | Add keepsakes to album |
+
+**Midnight (Private Keepsakes)**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/midnight/{id}/prove` | Queue zero-knowledge proof generation |
+| POST | `/midnight/{id}/transfer` | Queue Midnight ownership transfer |
+| POST | `/midnight/{id}/revoke` | Queue Midnight record revocation |
+| GET | `/midnight/{id}/status` | Get current Midnight status for a keepsake |
+| GET | `/midnight/job/{job_id}` | Poll async job result (prove/transfer/revoke) |
 
 ### Supported Cardano Wallets
 Nami, Vespr, Begin, Eternl, Lace
@@ -313,7 +409,7 @@ Max 5 files per mint transaction.
 |-------|-------------|
 | Public | Anyone via /memories feed |
 | Shared | Anyone with the share link |
-| Private | Owner only (Midnight protocol â€” coming soon) |
+| Private | Owner only (Midnight privacy protocol — requires Midnight sidecar deployed) |
 
 ### Useful Links
 - Anvil API docs: https://docs.ada-anvil.app
