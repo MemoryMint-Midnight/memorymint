@@ -8,12 +8,6 @@
   <strong>Your memories, preserved forever. Private by default. Provable on demand.</strong>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Cardano-mainnet-blue?logo=cardano" alt="Cardano" />
-  <img src="https://img.shields.io/badge/Midnight-preprod-purple" alt="Midnight" />
-  <img src="https://img.shields.io/badge/status-private%20beta-orange" alt="Status" />
-</p>
-
 ---
 
 ## What is MemoryMint?
